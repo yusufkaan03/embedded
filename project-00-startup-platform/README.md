@@ -79,3 +79,54 @@ When the user button in released, the green onboard LED turns off.
 Button pressed  -> Green LED ON
 Button released -> Green LED OFF
 ```
+
+## Checkpoint 4 - UART Transmit
+
+Status: Completed
+
+USART2 was configured in asynchronous mode with 115200 baud rate.
+
+The STM32f407G-DISC1 send a test massage over UART through an FT232 USB-UART converter.
+The message was successfully received on Ubuntu using `picocom`.
+
+### GPIO Mapping
+
+| Function | Pin | Description |
+|---|---|---|
+| USER_BUTTON | PA0 | Onboard user button |
+| LD4_green | PD12 | Green onboard LED |
+| LD3_orange | PD13 | Orange onboard LED |
+| LD5_red | PD14 | Red onboard LED |
+| LD6_red | PD15 | Blue onboard LED |
+
+### UART Configuration
+
+| Signal | STM32 Pin | FT232 Pin |
+|---|---|---|
+| USART2_TX | PA2 | RXD |
+| USART2_RX | PA3 | TXD |
+| GND | GND | GND |
+
+### Serial Settings
+
+| Parameter | Value |
+|---|---|
+| Baud rate | 115200 |
+| Word length | 8 bits |
+| Pariyt | None |
+| Stop bits | 1 |
+
+### Test Outputs
+
+```text
+Hello form STM32
+Hello form STM32
+Hello form STM32
+```
+
+### Terminal Command
+
+```bash
+picocom -b 115200 /dev/ttyUSB0
+```
+

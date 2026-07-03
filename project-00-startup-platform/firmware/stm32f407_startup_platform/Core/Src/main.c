@@ -18,10 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -86,6 +89,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -94,15 +98,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if ( HAL_GPIO_ReadPin(USER_BUTON_GPIO_Port, USER_BUTON_Pin) == GPIO_PIN_SET)
-    {
-    	HAL_GPIO_WritePin(LD4_green_GPIO_Port, LD4_green_Pin, GPIO_PIN_SET);
-    }
+    char msg[] = "Hello form STM32\r\n";
 
-    else {
-    	HAL_GPIO_WritePin(LD4_green_GPIO_Port, LD4_green_Pin, GPIO_PIN_RESET);
-    }
-    HAL_Delay(100);
+    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+
+    HAL_GPIO_TogglePin(LD4_green_GPIO_Port, LD4_green_Pin);
+
+    HAL_Delay(1000);
   }
   /* USER CODE END 3 */
 }
