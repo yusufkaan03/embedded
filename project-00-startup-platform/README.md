@@ -202,3 +202,32 @@ The UART output was monitored on Ubuntu using `picocom`.
 picocom -b 115200 /dev/ttyUSB0
 ```
 
+## Checkpoit 6 - Python Serial Logger
+
+Status: Completed
+
+A python serial logger was implemented using `pyserial`.
+
+The script reads CSV-formatted UART data from the STM32 through the FT232 USB-UART converter and saves the received data into a CSV file.
+
+### Python Script
+
+```text
+python_tools/src/serial_logger.py
+```
+### Output Files
+
+```text
+python_tools/data/stm32_log.csv
+```
+
+### Example Saved Data
+
+timestamp_ms,button_state,status
+5013,0,OK
+6015,0,OK
+7017,0,OK
+
+### Test Result
+
+The Python logger successfully opened `/dev/ttyUSB0`, read the UART data stream, validated the CSV rows, and saved the data to `stm32_log.csv`.
