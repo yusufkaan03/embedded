@@ -36,3 +36,19 @@ Green onboard LED is blinking successfully.
 - Add ADC potentiometer reading
 - Send CSV-formatted data over UART
 - Read UART data using Python
+
+
+## Checkpoint 2 - Onboard LED Secuence Test
+
+Status: Copleted
+
+All four onboard LEDs were configured as GPIO outputs and tested successfully.
+
+LED pin mapping:
+
+- PD12: Green LED
+- PD13: Orange LED
+- PD14: Red LED
+- PD15: Blue LED
+
+The LEDs blik in sequence with a 500 ms delay
