@@ -20,7 +20,6 @@ venv/
 
 # Generated logs and data
 *.log
-*.csv
 
 # OS / editor
 .DS_Store
