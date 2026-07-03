@@ -111,6 +111,7 @@ The message was successfully received on Ubuntu using `picocom`.
 
 | Parameter | Value |
 |---|---|
+| UART peripheral | USART2 |
 | Baud rate | 115200 |
 | Word length | 8 bits |
 | Pariyt | None |
@@ -123,6 +124,77 @@ Hello form STM32
 Hello form STM32
 Hello form STM32
 ```
+
+### Terminal Command
+
+```bash
+picocom -b 115200 /dev/ttyUSB0
+```
+
+## Checkpoint 5 - CSV UART Data Stream
+
+Status: Completed
+
+The ST32F407G-DISC1 now sends structured CSV-formated data over UART.
+
+USART2 is used to transmit system uptime, user button state, and system status to the comuter through the FT232 USB-UART converter.
+
+### GPIO Mapping
+
+| Function | Pin | Description |
+|---|---|---|
+| USER_BUTTON | PA0 | Onboard user button |
+| LD4_green | PD12 | Green onboard LED |
+| LD3_orange | PD13 | Orange onboard LED |
+| LD5_red | PD14 | Red onboard LED |
+| LD6_red | PD15 | Blue onboard LED |
+
+### UART Configuration
+
+| Signal | STM32 Pin | FT232 Pin |
+|---|---|---|
+| USART2_TX | PA2 | RXD |
+| USART2_RX | PA3 | TXD |
+| GND | GND | GND |
+
+### Serial Settings
+
+| Parameter | Value |
+|---|---|
+| UART peripheral | USART2 |
+| Baud rate | 115200 |
+| Word length | 8 bits |
+| Pariyt | None |
+| Stop bits | 1 |
+
+### Output Format
+
+```text
+timestamp_ms,button_state,status
+```
+
+### Data Fields
+
+| Field | Descriptions |
+|---|---|
+| timestamp_ms | System uptime in miliseconds |
+| button_state | User buton state. 0 means released, 1 means prassed |
+| status | System status. Currently always OK |
+
+### Eample Outpus
+
+```bash
+64131,0,OK
+65133,1,OK
+66135,1,OK
+67137,0,OK
+68139,0,OK
+69141,0,OK
+```
+
+### Test Result
+
+The UART output was monitored on Ubuntu using `picocom`.
 
 ### Terminal Command
 

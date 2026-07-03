@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 
 #include <string.h>
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -92,19 +93,55 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  char header[] = "timestamp_ms,button_state,status\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)header, strlen(header), HAL_MAX_DELAY);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    char msg[] = "Hello form STM32\r\n";
+	  uint32_t timestamp_ms = HAL_GetTick();
+
+	  GPIO_PinState button = HAL_GPIO_ReadPin(USER_BUTON_GPIO_Port, USER_BUTON_Pin);
+
+	  uint8_t button_state = 0;
+
+	  if (button == GPIO_PIN_SET)
+	  {
+		  button_state = 1;
+		  HAL_GPIO_WritePin(LD4_green_GPIO_Port, LD4_green_Pin, GPIO_PIN_SET);
+	  }
+
+	  else
+	  {
+		  button_state = 0;
+		  HAL_GPIO_WritePin(LD4_green_GPIO_Port, LD4_green_Pin, GPIO_PIN_RESET);
+	  }
+
+	  char tx_buffer[64];
+
+	  int len = snprintf(
+	        tx_buffer,
+	        sizeof(tx_buffer),
+	        "%lu,%d,OK\r\n",
+	        (unsigned long)timestamp_ms,
+	        button_state
+	    );
+
+	  HAL_UART_Transmit(&huart2, (uint8_t*)tx_buffer, len, HAL_MAX_DELAY);
+
+	  HAL_Delay(1000);
+
+
+	/*char msg[] = "Hello form STM32\r\n";
 
     HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
     HAL_GPIO_TogglePin(LD4_green_GPIO_Port, LD4_green_Pin);
 
-    HAL_Delay(1000);
+    HAL_Delay(1000);*/
   }
   /* USER CODE END 3 */
 }
