@@ -52,3 +52,30 @@ LED pin mapping:
 - PD15: Blue LED
 
 The LEDs blik in sequence with a 500 ms delay
+
+
+## Checkpoint 3 - User Button Input
+
+Status: Completed
+
+The onboard user button was configured as a GPIO input
+
+When the user button is pressed, the green onboard LED turns on.
+When the user button in released, the green onboard LED turns off.
+
+### GPIO Mapping
+
+| Function | Pin | Description |
+|---|---|---|
+| USER_BUTTON | PA0 | Onboard user button |
+| LD4_green | PD12 | Green onboard LED |
+| LD3_orange | PD13 | Orange onboard LED |
+| LD5_red | PD14 | Red onboard LED |
+| LD6_red | PD15 | Blue onboard LED |
+
+### Behavior
+
+```text
+Button pressed  -> Green LED ON
+Button released -> Green LED OFF
+```
