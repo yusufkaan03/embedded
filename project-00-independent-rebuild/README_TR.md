@@ -1,4 +1,4 @@
-#Proje 00 - Yeniden Yapılandırma
+# Proje 00 - Yeniden Yapılandırma
 
 Bu projenin amacı statrup platformu projesinde yapılanları tekrar etmek
 
