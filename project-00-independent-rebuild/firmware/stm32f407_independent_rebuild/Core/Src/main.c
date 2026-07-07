@@ -18,11 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usart.h"
 #include "gpio.h"
 
-#include <stdio.h>
 #include <string.h>
-
+#include <stdio.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -66,30 +66,60 @@ void SystemClock_Config(void);
   */
 
 int button_control(uint8_t status)
+    {
+  	uint32_t delay_time = HAL_GetTick();
+
+  	while ((HAL_GetTick()- delay_time ) < 500)
+  	{
+
+  	  if (status == 1)
+  	  {
+  		  status = 1;
+  	  }
+
+  	  else if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_SET)
+  	  {
+  		  status = 1;
+  	  }
+
+  	  else
+  	  {
+  		  status = 0;
+  	  }
+
+  	}
+
+  	return status;
+    }
+
+  uint32_t start = 0;
+
+
+  void UART(const char *mod, int button, const char *status)
   {
-	uint32_t delay_time = HAL_GetTick();
+  	if (HAL_GetTick() - start < 1000)
+  	{
 
-	while ((HAL_GetTick()- delay_time ) < 500)
-	{
+  	}
 
-	  if (status == 1)
-	  {
-		  status = 1;
-	  }
+  	else
+  	{
+  		start = HAL_GetTick();
 
-	  else if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_SET)
-	  {
-		  status = 1;
-	  }
+  		char tx_buffer[64];
 
-	  else
-	  {
-		  status = 0;
-	  }
+  		int len = snprintf(
+  				tx_buffer,
+				sizeof(tx_buffer),
+				"%lu,%s,%d,%s\r\n",
+				(unsigned long)start,
+				mod,
+				button,
+				status);
 
-	}
+  		HAL_UART_Transmit(&huart2, (uint8_t*)tx_buffer, len, HAL_MAX_DELAY);
 
-	return status;
+  	}
   }
 
 int main(void)
@@ -117,88 +147,106 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint8_t button_count = 0;
-  uint8_t mode_selector = 0;
-  uint8_t button = 0;
+
+    uint8_t button_count = 0;
+    uint8_t mode_selector = 0;
+    uint8_t button = 0;
+    char *mode;
+    char *status;
+
+    char header[] = "timestamp_ms,mode,button_count,status\r\n";
+    HAL_UART_Transmit(&huart2, (uint8_t*)header, strlen(header), HAL_MAX_DELAY);
 
 
-  while (1)
-  {
-	  button = 0;
-	  mode_selector = (button_count%3);
+    while (1)
+    {
+  	  button = 0;
+  	  mode_selector = (button_count%3);
 
-	  if (mode_selector == 0)
-	  {
-		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
+  	  if (mode_selector == 0)
+  	  {
+  		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
 
-
-		  while (button == 0)
-		  {
-			  HAL_GPIO_TogglePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin);
-			  button = button_control(button);
-
-		  }
-
-		  button_count++;
-
-	  }
+  		  mode = "IDLE";
+  		  status = "OK";
 
 
+  		  while (button == 0)
+  		  {
+  			  HAL_GPIO_TogglePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin);
+  			  button = button_control(button);
+  			  UART(mode, button_count, status);
 
-	  else if (mode_selector == 1)
-	  {
-		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
+  		  }
 
+  		  button_count++;
 
-		  while (button == 0)
-		  {
-			  HAL_GPIO_TogglePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin);
-			  button = button_control(button);
-
-		  }
-
-		  button_count++;
-
-	  }
+  	  }
 
 
 
+  	  else if (mode_selector == 1)
+  	  {
+  		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
 
-	  else if (mode_selector == 2)
-	  {
-		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
-
-
-		  while (button == 0)
-		  {
-			  HAL_GPIO_TogglePin (LD5_RED_GPIO_Port, LD5_RED_Pin);
-			  button = button_control(button);
-
-		  }
-
-		  button_count++;
-
-	  }
+  		mode = "ACTIVE";
+  		status = "OK";
 
 
+  		  while (button == 0)
+  		  {
+  			  HAL_GPIO_TogglePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin);
+  			  button = button_control(button);
+  			UART(mode, button_count, status);
+
+  		  }
+
+  		  button_count++;
+
+  	  }
+
+
+
+
+  	  else if (mode_selector == 2)
+  	  {
+  		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD5_RED_GPIO_Port, LD5_RED_Pin, GPIO_PIN_RESET);
+  		  HAL_GPIO_WritePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin, GPIO_PIN_RESET);
+
+  		  mode = "ERROR_SIM";
+  		  status = "ERROR";
+
+  		  while (button == 0)
+  		  {
+  			  HAL_GPIO_TogglePin (LD5_RED_GPIO_Port, LD5_RED_Pin);
+  			  button = button_control(button);
+  			UART(mode, button_count, status);
+
+  		  }
+
+  		  button_count++;
+
+  	  }
+
+
+    }
+    /* USER CODE END 3 */
   }
-  /* USER CODE END 3 */
-}
 
 /**
   * @brief System Clock Configuration
