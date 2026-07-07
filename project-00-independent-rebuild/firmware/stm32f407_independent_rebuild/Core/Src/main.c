@@ -67,22 +67,29 @@ void SystemClock_Config(void);
 
 int button_control(uint8_t status)
   {
+	uint32_t delay_time = HAL_GetTick();
+
+	while ((HAL_GetTick()- delay_time ) < 500)
+	{
+
 	  if (status == 1)
 	  {
-		  return 1;
+		  status = 1;
 	  }
 
 	  else if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_SET)
 	  {
-		  return 1;
+		  status = 1;
 	  }
 
 	  else
 	  {
-		  return 0;
+		  status = 0;
 	  }
 
+	}
 
+	return status;
   }
 
 int main(void)
@@ -137,7 +144,6 @@ int main(void)
 		  while (button == 0)
 		  {
 			  HAL_GPIO_TogglePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin);
-			  HAL_Delay(500);
 			  button = button_control(button);
 
 		  }
@@ -148,7 +154,7 @@ int main(void)
 
 
 
-	  if (mode_selector == 1)
+	  else if (mode_selector == 1)
 	  {
 		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
 		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
@@ -159,7 +165,6 @@ int main(void)
 		  while (button == 0)
 		  {
 			  HAL_GPIO_TogglePin (LD6_BLUE_GPIO_Port, LD6_BLUE_Pin);
-			  HAL_Delay(500);
 			  button = button_control(button);
 
 		  }
@@ -171,7 +176,7 @@ int main(void)
 
 
 
-	  if (mode_selector == 2)
+	  else if (mode_selector == 2)
 	  {
 		  HAL_GPIO_WritePin (LD4_GREEN_GPIO_Port, LD4_GREEN_Pin, GPIO_PIN_RESET);
 		  HAL_GPIO_WritePin (LD3_ORANGE_GPIO_Port, LD3_ORANGE_Pin, GPIO_PIN_RESET);
@@ -182,7 +187,6 @@ int main(void)
 		  while (button == 0)
 		  {
 			  HAL_GPIO_TogglePin (LD5_RED_GPIO_Port, LD5_RED_Pin);
-			  HAL_Delay(500);
 			  button = button_control(button);
 
 		  }
