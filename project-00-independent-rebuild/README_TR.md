@@ -18,7 +18,7 @@ Bu adımda USER_BUTTON' a her basıldığında sistem modu `IDLE -> ACTIVE -> ER
 | LD5_RED | PD14 | Kart üzerindeki kırmızı LED |
 | LD6_BLUE | PD15 | Kart üzerindeki mavi LED |
 
-###LED Mod Açıklaması
+### LED Mod Açıklaması
 
 | Mod | LED |
 |---|---|
