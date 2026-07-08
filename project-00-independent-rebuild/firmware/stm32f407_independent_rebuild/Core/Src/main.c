@@ -67,6 +67,60 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 
 uint32_t last_push_time = 0;
+uint32_t last_uart_send_time = 0;
+
+const char* get_mode_string(SystemMode_t mode)
+{
+	switch (mode)
+	{
+	case MODE_IDLE: return "IDLE";
+
+	case MODE_ACTIVE: return "ACTIVE";
+
+	case MODE_ERROR_SIM: return "ERROR_SIM";
+
+	default: return "UNKNOWN";
+	}
+}
+
+const char* get_status(SystemMode_t mode)
+{
+	if (mode == MODE_ERROR_SIM)
+	{
+		return "ERROR";
+	}
+
+	else
+	{
+		return "OK";
+	}
+}
+
+void uart_send_and_time_check(SystemMode_t mode, uint32_t button_count)
+{
+
+	if ((HAL_GetTick() - last_uart_send_time) > 1000)
+	{
+		char tx_buffer[64];
+
+		const char *mode_string = get_mode_string(mode);
+
+		const char *status = get_status(mode);
+
+		last_uart_send_time = HAL_GetTick();
+
+		int len = snprintf(
+				tx_buffer,
+				sizeof(tx_buffer),
+				"%lu,%s,%lu,%s\r\n",
+				(unsigned long)last_uart_send_time,
+				mode_string,
+				(unsigned long)button_count,
+				status);
+
+		HAL_UART_Transmit(&huart2, (uint8_t*)tx_buffer, len, HAL_MAX_DELAY);
+	}
+}
 
 uint8_t debounce_check(void)
 {
@@ -111,7 +165,7 @@ int button_control(void)
 }
 
 
-uint8_t time_control(uint32_t time)
+uint8_t time_control(uint32_t time, SystemMode_t mode, uint32_t button_count)
 {
 	uint32_t start = HAL_GetTick();
 	uint8_t push = 0;
@@ -119,6 +173,7 @@ uint8_t time_control(uint32_t time)
 	while((HAL_GetTick() - start) < time)
 	{
 		push = button_control();
+		uart_send_and_time_check(mode, button_count);
 
 		if (push == 1)
 		{
@@ -199,6 +254,9 @@ int main(void)
 
   turnoff_all_led();
 
+  char header[] = "timestamp_ms,mode,button_count,status\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)header, strlen(header), HAL_MAX_DELAY);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -213,7 +271,7 @@ int main(void)
 		  while(button == 0)
 		  {
 			  HAL_GPIO_TogglePin(LD4_GREEN_GPIO_Port, LD4_GREEN_Pin);
-			  button = time_control(toggle_time);
+			  button = time_control(toggle_time, current_mode, button_count);
 		  }
 
 		  button_count++;
@@ -228,7 +286,7 @@ int main(void)
 		  while (button == 0)
 		  {
 			  HAL_GPIO_TogglePin(LD6_BLUE_GPIO_Port, LD6_BLUE_Pin);
-			  button = time_control(toggle_time);
+			  button = time_control(toggle_time, current_mode, button_count);
 		  }
 
 		  button_count++;
@@ -243,7 +301,7 @@ int main(void)
 		  while (button == 0)
 		  {
 			  HAL_GPIO_TogglePin(LD5_RED_GPIO_Port, LD5_RED_Pin);
-			  button = time_control(toggle_time);
+			  button = time_control(toggle_time, current_mode, button_count);
 		  }
 
 		  button_count++;
