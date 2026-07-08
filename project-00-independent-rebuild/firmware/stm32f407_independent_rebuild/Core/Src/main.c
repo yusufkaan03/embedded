@@ -99,7 +99,7 @@ const char* get_status(SystemMode_t mode)
 void uart_send_and_time_check(SystemMode_t mode, uint32_t button_count)
 {
 
-	if ((HAL_GetTick() - last_uart_send_time) > 1000)
+	if ((HAL_GetTick() - last_uart_send_time) >= 1000)
 	{
 		char tx_buffer[64];
 
@@ -170,7 +170,7 @@ uint8_t time_control(uint32_t time, SystemMode_t mode, uint32_t button_count)
 	uint32_t start = HAL_GetTick();
 	uint8_t push = 0;
 
-	while((HAL_GetTick() - start) < time)
+	while((HAL_GetTick() - start) <= time)
 	{
 		push = button_control();
 		uart_send_and_time_check(mode, button_count);
