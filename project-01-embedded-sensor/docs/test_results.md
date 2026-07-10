@@ -71,3 +71,7 @@ timestamp_ms,adc_raw,adc_mv,button,status
 The averaged ADC value changed according to the potentiometer position. When the potentiometer was kept at the maximum position, `adc_raw` stayed around `4094–4095`. In the middle range, the value stayed around `2206–2211`, which shows a stable reading.
 
 The calculated `adc_mv` value also changed correctly between approximately `0 mV` and `3300 mV`.
+
+### Note
+
+During testing, a UART field order bug was found after adding the `adc_mv` parameter. The `button` and `adc_mv` arguments were passed in the wrong order. After correcting the function call, the UART output fields were verified again and the test passed.
