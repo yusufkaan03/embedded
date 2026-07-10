@@ -135,6 +135,14 @@ uint32_t convert_mv(uint16_t adc_raw)
 	return ((uint32_t)adc_raw * 3300U) / 4095U;
 }
 
+void turnoff_leds(void)
+{
+	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_RESET);
+}
+
 void send_uart_head(void)
 {
 	char header[] = "timestamp_ms,adc_raw,adc_mv,button,status\r\n";
