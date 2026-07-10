@@ -33,6 +33,13 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef enum {
+	ADC_LOW,
+	ADC_OK,
+	ADC_HIGH,
+	ADC_ERROR
+} AdcSituation_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -83,23 +90,6 @@ uint16_t read_adc_average(void)
 	return (uint16_t)(adc_sum/ADC_SAMPLE_COUNT);
 }
 
-
-uint16_t read_adc_raw(void)
-{
-	uint16_t adc_value = 0;
-
-	HAL_ADC_Start(&hadc1);
-
-	if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-	{
-		adc_value = HAL_ADC_GetValue(&hadc1);
-	}
-
-	HAL_ADC_Stop(&hadc1);
-
-	return adc_value;
-}
-
 uint8_t read_user_button(void)
 {
 	if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_SET)
@@ -113,26 +103,60 @@ uint8_t read_user_button(void)
 	}
 }
 
+AdcSituation_t adc_situation(uint32_t adc_mv)
+{
+	if (adc_mv < 500U) return ADC_LOW;
+
+	else if (adc_mv <= 3000U) return ADC_OK;
+
+	else if (adc_mv <= 3300U) return ADC_HIGH;
+
+	else return ADC_ERROR;
+}
+
+const char* get_situation_char(AdcSituation_t situation)
+{
+	switch (situation)
+	{
+	case ADC_LOW: return "LOW";
+
+	case ADC_OK: return "OK";
+
+	case ADC_HIGH: return "HIGH";
+
+	case ADC_ERROR: return "ERROR";
+
+	default: return "UNKNOWN";
+	}
+}
+
+uint32_t convert_mv(uint16_t adc_raw)
+{
+	return ((uint32_t)adc_raw * 3300U) / 4095U;
+}
+
 void send_uart_head(void)
 {
 	char header[] = "timestamp_ms,adc_raw,adc_mv,button,status\r\n";
 	HAL_UART_Transmit(&huart2, (uint8_t*)header, sizeof(header) - 1, 100);
 }
 
-void send_sensor_log(uint32_t timestamp_t, uint16_t adc_raw, uint8_t button)
+void send_sensor_log(uint32_t timestamp_t, uint16_t adc_raw, uint32_t adc_mv, uint8_t button, AdcSituation_t situation)
 {
 	char buffer[100];
 
-	uint32_t adc_mv = ((uint32_t)adc_raw * 3300U) / 4095U;
+	const char *situation_char = get_situation_char(situation);
 
 	int len = snprintf(
 			buffer,
 			sizeof(buffer),
-			"%lu,%u,%lu,%u,OK\r\n",
+			"%lu,%u,%lu,%u,%s\r\n",
 			(unsigned long)timestamp_t,
 			adc_raw,
 			(unsigned long)adc_mv,
-			button);
+			button,
+			situation_char
+			);
 
 	HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
 }
@@ -174,6 +198,7 @@ int main(void)
 
   uint32_t last_log_time = 0;
 
+
   send_uart_head();
 
   /* USER CODE END 2 */
@@ -190,9 +215,12 @@ int main(void)
 	  {
 		  uint8_t button = read_user_button();
 		  uint16_t adc_raw = read_adc_average();
+		  uint32_t adc_mv = convert_mv(adc_raw);
+		  AdcSituation_t current_situation = adc_situation(adc_mv);
 
 
-		  send_sensor_log(now, adc_raw, button);
+
+		  send_sensor_log(now, adc_raw, adc_mv, button, current_situation);
 
 		  HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
 
