@@ -39,6 +39,7 @@
 /* USER CODE BEGIN PD */
 
 #define UART_LOG_INTERVAL_MS 1000
+#define ADC_SAMPLE_COUNT 10
 
 /* USER CODE END PD */
 
@@ -61,6 +62,27 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+uint16_t read_adc_average(void)
+{
+	uint32_t adc_sum = 0;
+
+	for (uint8_t i = 0; i < ADC_SAMPLE_COUNT; i++)
+	{
+		HAL_ADC_Start(&hadc1);
+
+		if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+		{
+			adc_sum = adc_sum + HAL_ADC_GetValue(&hadc1);
+		}
+
+		HAL_ADC_Stop(&hadc1);
+	}
+
+	return (uint16_t)(adc_sum/ADC_SAMPLE_COUNT);
+}
+
 
 uint16_t read_adc_raw(void)
 {
@@ -167,7 +189,7 @@ int main(void)
 	  if ((now - last_log_time) >= UART_LOG_INTERVAL_MS)
 	  {
 		  uint8_t button = read_user_button();
-		  uint16_t adc_raw = read_adc_raw();
+		  uint16_t adc_raw = read_adc_average();
 
 
 		  send_sensor_log(now, adc_raw, button);
