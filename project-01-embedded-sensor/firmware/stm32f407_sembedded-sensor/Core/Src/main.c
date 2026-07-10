@@ -143,6 +143,24 @@ void turnoff_leds(void)
 	HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_RESET);
 }
 
+void update_situation_led(AdcSituation_t status)
+{
+	turnoff_leds();
+
+	switch(status)
+	{
+	case ADC_LOW: HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_SET); break;
+
+	case ADC_OK: HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET); break;
+
+	case ADC_HIGH: HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_SET); break;
+
+	case ADC_ERROR: HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET); break;
+
+	default: HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET); break;
+	}
+}
+
 void send_uart_head(void)
 {
 	char header[] = "timestamp_ms,adc_raw,adc_mv,button,status\r\n";
@@ -217,25 +235,21 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
+    /* USER CODE BEGIN 3 */
 	  uint32_t now = HAL_GetTick();
-
 	  if ((now - last_log_time) >= UART_LOG_INTERVAL_MS)
 	  {
-		  uint8_t button = read_user_button();
+	      uint8_t button = read_user_button();
 		  uint16_t adc_raw = read_adc_average();
 		  uint32_t adc_mv = convert_mv(adc_raw);
 		  AdcSituation_t current_situation = adc_situation(adc_mv);
 
-
+		  update_situation_led(current_situation);
 
 		  send_sensor_log(now, adc_raw, adc_mv, button, current_situation);
-
-		  HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
-
 		  last_log_time = now;
 	  }
 
-    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
