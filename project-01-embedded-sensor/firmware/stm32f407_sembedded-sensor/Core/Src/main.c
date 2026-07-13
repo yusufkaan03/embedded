@@ -41,17 +41,36 @@ typedef enum {
 	ADC_ERROR
 } AdcSituation_t;
 
+typedef struct
+{
+    uint16_t dig_T1;
+    int16_t  dig_T2;
+    int16_t  dig_T3;
+
+    uint16_t dig_P1;
+    int16_t  dig_P2;
+    int16_t  dig_P3;
+    int16_t  dig_P4;
+    int16_t  dig_P5;
+    int16_t  dig_P6;
+    int16_t  dig_P7;
+    int16_t  dig_P8;
+    int16_t  dig_P9;
+} BMP280_CalibData_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define UART_LOG_INTERVAL_MS	1000
-#define ADC_SAMPLE_COUNT 		10
-#define BME280_I2C_ADDR         (0x76 << 1)
-#define BME280_REG_CHIP_ID      0xD0
-#define BME280_CHIP_ID  		0x60
-#define BMP280_CHIP_ID          0x58
+#define UART_LOG_INTERVAL_MS		1000
+#define ADC_SAMPLE_COUNT 			10
+#define BME280_I2C_ADDR         	(0x76 << 1)
+#define BME280_REG_CHIP_ID      	0xD0
+#define BME280_CHIP_ID  			0x60
+#define BMP280_CHIP_ID          	0x58
+#define BMP280_REG_CALIB_START		0x88
+#define BMP280_CALIB_DATA_LENGTH	24
 
 /* USER CODE END PD */
 
@@ -64,6 +83,8 @@ typedef enum {
 
 /* USER CODE BEGIN PV */
 
+BMP280_CalibData_t bmp280_calib;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,6 +96,95 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+uint16_t u16_from_lsb_msb(uint8_t lsb, uint8_t msb)
+{
+    return (uint16_t)((uint16_t)msb << 8 | lsb);
+}
+
+int16_t s16_from_lsb_msb(uint8_t lsb, uint8_t msb)
+{
+    return (int16_t)((uint16_t)msb << 8 | lsb);
+}
+
+HAL_StatusTypeDef bmp280_read_calibration(BMP280_CalibData_t *calib)
+{
+    uint8_t calib_raw[BMP280_CALIB_DATA_LENGTH];
+
+    HAL_StatusTypeDef result = HAL_I2C_Mem_Read(
+        &hi2c2,
+        BME280_I2C_ADDR,
+        BMP280_REG_CALIB_START,
+        I2C_MEMADD_SIZE_8BIT,
+        calib_raw,
+        BMP280_CALIB_DATA_LENGTH,
+        HAL_MAX_DELAY
+    );
+
+    if (result != HAL_OK)
+    {
+        return result;
+    }
+
+    calib->dig_T1 = u16_from_lsb_msb(calib_raw[0],  calib_raw[1]);
+    calib->dig_T2 = s16_from_lsb_msb(calib_raw[2],  calib_raw[3]);
+    calib->dig_T3 = s16_from_lsb_msb(calib_raw[4],  calib_raw[5]);
+
+    calib->dig_P1 = u16_from_lsb_msb(calib_raw[6],  calib_raw[7]);
+    calib->dig_P2 = s16_from_lsb_msb(calib_raw[8],  calib_raw[9]);
+    calib->dig_P3 = s16_from_lsb_msb(calib_raw[10], calib_raw[11]);
+    calib->dig_P4 = s16_from_lsb_msb(calib_raw[12], calib_raw[13]);
+    calib->dig_P5 = s16_from_lsb_msb(calib_raw[14], calib_raw[15]);
+    calib->dig_P6 = s16_from_lsb_msb(calib_raw[16], calib_raw[17]);
+    calib->dig_P7 = s16_from_lsb_msb(calib_raw[18], calib_raw[19]);
+    calib->dig_P8 = s16_from_lsb_msb(calib_raw[20], calib_raw[21]);
+    calib->dig_P9 = s16_from_lsb_msb(calib_raw[22], calib_raw[23]);
+
+    return HAL_OK;
+}
+
+void print_bmp280_calibration(const BMP280_CalibData_t *calib)
+{
+    char buffer[120];
+
+    char title[] = "BMP280 calibration data:\r\n";
+    HAL_UART_Transmit(&huart2, (uint8_t*)title, strlen(title), HAL_MAX_DELAY);
+
+    int len = snprintf(buffer, sizeof(buffer), "dig_T1=%u\r\n", calib->dig_T1);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_T2=%d\r\n", calib->dig_T2);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_T3=%d\r\n", calib->dig_T3);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P1=%u\r\n", calib->dig_P1);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P2=%d\r\n", calib->dig_P2);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P3=%d\r\n", calib->dig_P3);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P4=%d\r\n", calib->dig_P4);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P5=%d\r\n", calib->dig_P5);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P6=%d\r\n", calib->dig_P6);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P7=%d\r\n", calib->dig_P7);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P8=%d\r\n", calib->dig_P8);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    len = snprintf(buffer, sizeof(buffer), "dig_P9=%d\r\n", calib->dig_P9);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
 
 uint16_t read_adc_average(void)
 {
@@ -318,6 +428,16 @@ int main(void)
   scan_i2c_devices();
 
   print_bme280_chip_id();
+
+  if (bmp280_read_calibration(&bmp280_calib) == HAL_OK)
+  {
+      print_bmp280_calibration(&bmp280_calib);
+  }
+  else
+  {
+      char msg[] = "BMP280 calibration read failed\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+  }
 
   send_uart_head();
 

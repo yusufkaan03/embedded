@@ -185,3 +185,46 @@ timestamp_ms,adc_raw,adc_mv,button,status
 
 The STM32 successfully read chip ID 0x58 from register 0xD0. This confirms that the connected sensor is a BMP280. The ADC logger continued running after the sensor detection step.
 
+## Test 07 - BMP280 Calibration Register Read
+
+### Goal
+
+Verify that STM32 can read the BMP280 calibration registers over I2C.
+
+### Observed UART Output
+
+```text
+--- BOOT ---
+I2C scan started
+Device found at 0x76
+I2C scan finished
+Chip ID: 0x58
+Sensor detected: BMP280
+BMP280 calibration data:
+dig_T1=27550
+dig_T2=26576
+dig_T3=-1000
+dig_P1=36988
+dig_P2=-10586
+dig_P3=3024
+dig_P4=2570
+dig_P5=315
+dig_P6=-7
+dig_P7=15500
+dig_P8=-14600
+dig_P9=6000
+timestamp_ms,adc_raw,adc_mv,button,status
+1000,4056,3268,0,HIGH
+2000,4057,3269,0,HIGH
+3000,4057,3269,0,HIGH
+4000,4056,3268,0,HIGH
+```
+
+### Result
+
+The STM32 successfully read the BMP280 calibration registers starting from register `0x88`.
+
+The calibration values were not zero and included both unsigned and signed values. This shows that the I2C register read and calibration data parsing are working correctly.
+
+The existing ADC UART logger continued to work after the BMP280 calibration read.
+
