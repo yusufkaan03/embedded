@@ -46,8 +46,12 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define UART_LOG_INTERVAL_MS 1000
-#define ADC_SAMPLE_COUNT 10
+#define UART_LOG_INTERVAL_MS	1000
+#define ADC_SAMPLE_COUNT 		10
+#define BME280_I2C_ADDR         (0x76 << 1)
+#define BME280_REG_CHIP_ID      0xD0
+#define BME280_CHIP_ID  		0x60
+#define BMP280_CHIP_ID          0x58
 
 /* USER CODE END PD */
 
@@ -188,6 +192,62 @@ void scan_i2c_devices(void)
 	HAL_UART_Transmit(&huart2, (uint8_t* )end_msg, strlen(end_msg), HAL_MAX_DELAY);
 }
 
+HAL_StatusTypeDef bme280_read_chip_id(uint8_t *chip_id)
+{
+	return HAL_I2C_Mem_Read(
+			&hi2c2,
+			BME280_I2C_ADDR,
+			BME280_REG_CHIP_ID,
+			I2C_MEMADD_SIZE_8BIT,
+			chip_id,
+			1,
+			HAL_MAX_DELAY);
+}
+
+void print_bme280_chip_id(void)
+{
+	uint8_t chip_id = 0;
+
+	char buffer[100];
+
+	HAL_StatusTypeDef result = bme280_read_chip_id(&chip_id);
+
+	if (result == HAL_OK)
+	{
+		int len = snprintf(
+				buffer,
+				sizeof(buffer),
+				"Chip ID: 0x%02X\r\n",
+				chip_id);
+
+		HAL_UART_Transmit(&huart2, (uint8_t* )buffer, len, HAL_MAX_DELAY);
+
+		if (chip_id == BME280_CHIP_ID)
+		{
+			char ok_msg[] = "Sensor detected: BME280\r\n";
+			HAL_UART_Transmit(&huart2, (uint8_t* )ok_msg, strlen(ok_msg), HAL_MAX_DELAY);
+		}
+
+		else if (chip_id == BMP280_CHIP_ID)
+		{
+			char ok_msg[] = "Sensor detected: BMP280\r\n";
+			HAL_UART_Transmit(&huart2, (uint8_t* )ok_msg, strlen(ok_msg), HAL_MAX_DELAY);
+		}
+
+		else
+		{
+			char error_msg[] = "Sensor detected: UNKNOWN\r\n";
+			HAL_UART_Transmit(&huart2, (uint8_t* )error_msg, strlen(error_msg), HAL_MAX_DELAY);
+		}
+	}
+
+	else
+	{
+		char failed_msg[] = "BME280 chip ID read failed\r\n";
+		HAL_UART_Transmit(&huart2, (uint8_t* )failed_msg, strlen(failed_msg), HAL_MAX_DELAY);
+	}
+}
+
 void send_uart_head(void)
 {
 	char header[] = "timestamp_ms,adc_raw,adc_mv,button,status\r\n";
@@ -252,8 +312,12 @@ int main(void)
 
   uint32_t last_log_time = 0;
 
+  char boot_msg[] = "\r\n--- BOOT ---\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)boot_msg, strlen(boot_msg), HAL_MAX_DELAY);
+
   scan_i2c_devices();
 
+  print_bme280_chip_id();
 
   send_uart_head();
 

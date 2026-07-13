@@ -75,3 +75,28 @@ The loop application code was moved inside the protected `/* USER CODE BEGIN 3 *
 ### Lesson Learned
 
 User code must be written only inside CubeMX-protected `USER CODE BEGIN` / `USER CODE END` blocks. Otherwise, code generation may overwrite or remove it.
+
+## Sensor Model Note
+
+The connected sensor module was initially expected to be a BME280. During chip ID testing, the sensor returned chip ID `0x58`.
+
+Chip ID meanings:
+
+```text
+0x60 -> BME280
+0x58 -> BMP280
+```
+
+This confirms that the connected module is a BMP280. Therefore, this project will read temperature and pressure only. Humidity measurement is not supported by the current sensor.
+
+## Duplicate I2C Scan Output
+
+During testing, the UART terminal seemed to show the I2C scan output twice.
+
+### Cause
+
+The first scan output was leftover/partial UART output from the previous run. After adding a boot marker (`--- BOOT ---`), it became clear that the firmware only performed one scan after each boot.
+
+### Result
+
+No code issue was found. The I2C scan runs once during startup.

@@ -132,3 +132,56 @@ timestamp_ms,adc_raw,adc_mv,button,status
 
 The STM32 successfully detected the BME280 sensor at I2C address `0x76`. The existing ADC UART logger continued to work after enabling I2C2.
 
+## Test 06 - Sensor Chip ID Read
+
+### Goal
+
+Verify that STM32 can read the sensor chip ID register over I2C.
+
+### Register
+
+```text
+Chip ID register: 0xD0
+```
+
+### Observed UART Output
+
+I2C scan started
+Device found at 0x76
+I2C scan finished
+BME280 chip ID: 0x58
+BME280 chip ID check: ERROR
+
+### Result
+
+The STM32 successfully read the chip ID register over I2C. The returned chip ID was 0x58.
+
+According to the sensor ID values:
+
+0x60 -> BME280
+0x58 -> BMP280
+
+This indicates that the connected module is most likely a BMP280, not a BME280.
+
+## Test 06 - BMP280 Chip ID Read
+
+### Goal
+
+Verify that STM32 can read the sensor chip ID over I2C and identify the connected sensor.
+
+### Observed UART Output
+
+```text
+--- BOOT ---
+I2C scan started
+Device found at 0x76
+I2C scan finished
+Chip ID: 0x58
+Sensor detected: BMP280
+timestamp_ms,adc_raw,adc_mv,button,status
+```
+
+### Result
+
+The STM32 successfully read chip ID 0x58 from register 0xD0. This confirms that the connected sensor is a BMP280. The ADC logger continued running after the sensor detection step.
+
