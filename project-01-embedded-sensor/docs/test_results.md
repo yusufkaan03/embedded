@@ -75,3 +75,28 @@ The calculated `adc_mv` value also changed correctly between approximately `0 mV
 ### Note
 
 During testing, a UART field order bug was found after adding the `adc_mv` parameter. The `button` and `adc_mv` arguments were passed in the wrong order. After correcting the function call, the UART output fields were verified again and the test passed.
+
+## Test 04 - Status LED Behavior
+
+### Goal
+
+Verify that the onboard LEDs indicate the ADC status correctly.
+
+### Status LED Mapping
+
+```text
+LOW   -> Blue LED
+OK    -> Green LED
+HIGH  -> Orange LED
+ERROR -> Red LED
+```
+
+### Result
+
+The LED behavior changed according to the ADC status:
+
+* When `adc_mv` was below `500 mV`, the Blue LED turned on.
+* When `adc_mv` was between `500 mV` and `3000 mV`, the Green LED turned on.
+* When `adc_mv` was above `3000 mV`, the Orange LED turned on.
+* Other LEDs were turned off before enabling the active status LED.
+

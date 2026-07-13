@@ -59,3 +59,19 @@ The `adc_mv` value was calculated correctly, the `button` field returned to `0` 
 ### Lesson Learned
 
 When adding new parameters to a function, the function definition and function call order must be checked carefully. In C, mismatched parameter order can compile successfully but still produce incorrect runtime behavior.
+
+## CubeMX Code Generation Removed Main Loop Code
+
+After configuring additional GPIO pins for status LEDs and regenerating code with CubeMX, the application code inside the `while (1)` loop was removed.
+
+### Cause
+
+The code was placed between `/* USER CODE END WHILE */` and `/* USER CODE BEGIN 3 */`, which is not protected by CubeMX.
+
+### Fix
+
+The loop application code was moved inside the protected `/* USER CODE BEGIN 3 */` section.
+
+### Lesson Learned
+
+User code must be written only inside CubeMX-protected `USER CODE BEGIN` / `USER CODE END` blocks. Otherwise, code generation may overwrite or remove it.
