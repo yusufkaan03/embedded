@@ -100,3 +100,35 @@ The LED behavior changed according to the ADC status:
 * When `adc_mv` was above `3000 mV`, the Orange LED turned on.
 * Other LEDs were turned off before enabling the active status LED.
 
+## Test 05 - BME280 I2C Bring-up
+
+### Goal
+
+Verify that STM32 can detect the BME280 sensor on the I2C bus.
+
+### Configuration
+
+```text
+I2C Peripheral: I2C2
+SCL: PB10
+SDA: PB11
+BME280 Address: 0x76
+```
+
+### Observed UART Output
+
+```text
+I2C scan started
+Device found at 0x76
+I2C scan finished
+timestamp_ms,adc_raw,adc_mv,button,status
+1000,4060,3271,0,HIGH
+2000,4059,3270,0,HIGH
+3000,4059,3270,0,HIGH
+4000,4059,3270,0,HIGH
+```
+
+### Result
+
+The STM32 successfully detected the BME280 sensor at I2C address `0x76`. The existing ADC UART logger continued to work after enabling I2C2.
+

@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -161,6 +162,32 @@ void update_situation_led(AdcSituation_t status)
 	}
 }
 
+void scan_i2c_devices(void)
+{
+	char buffer[80];
+
+	char start_msg[] = "I2C scan started\r\n";
+	HAL_UART_Transmit(&huart2, (uint8_t* )start_msg, strlen(start_msg), HAL_MAX_DELAY);
+
+	for (uint8_t address = 1; address < 128; address++)
+	{
+		if (HAL_I2C_IsDeviceReady(&hi2c2, (address << 1), 1, 10) == HAL_OK)
+		{
+			int len = snprintf(
+					buffer,
+					sizeof(buffer),
+					"Device found at 0x%02X\r\n",
+					address
+					);
+
+			HAL_UART_Transmit(&huart2, (uint8_t* )buffer, len, HAL_MAX_DELAY);
+		}
+	}
+
+	char end_msg[] = "I2C scan finished\r\n";
+	HAL_UART_Transmit(&huart2, (uint8_t* )end_msg, strlen(end_msg), HAL_MAX_DELAY);
+}
+
 void send_uart_head(void)
 {
 	char header[] = "timestamp_ms,adc_raw,adc_mv,button,status\r\n";
@@ -220,9 +247,12 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_USART2_UART_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
   uint32_t last_log_time = 0;
+
+  scan_i2c_devices();
 
 
   send_uart_head();
