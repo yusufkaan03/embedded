@@ -58,6 +58,12 @@ typedef struct
     int16_t  dig_P9;
 } BMP280_CalibData_t;
 
+typedef struct
+{
+    int32_t raw_temperature;
+    int32_t raw_pressure;
+} BMP280_RawData_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -65,12 +71,26 @@ typedef struct
 
 #define UART_LOG_INTERVAL_MS		1000
 #define ADC_SAMPLE_COUNT 			10
-#define BME280_I2C_ADDR         	(0x76 << 1)
+#define BME280_I2C_ADDR         	(0x77 << 1)
 #define BME280_REG_CHIP_ID      	0xD0
 #define BME280_CHIP_ID  			0x60
 #define BMP280_CHIP_ID          	0x58
 #define BMP280_REG_CALIB_START		0x88
 #define BMP280_CALIB_DATA_LENGTH	24
+
+#define BMP280_REG_STATUS           0xF3
+#define BMP280_REG_CTRL_MEAS        0xF4
+#define BMP280_REG_CONFIG           0xF5
+#define BMP280_REG_PRESS_MSB        0xF7
+
+#define BMP280_CONFIG_VALUE         0x00
+#define BMP280_CTRL_MEAS_FORCED     0x25
+
+#define BMP280_CTRL_MEAS_VALUE      0x27
+#define BMP280_RAW_DATA_LENGTH      6
+
+#define BMP280_REG_RESET      0xE0
+#define BMP280_RESET_VALUE    0xB6
 
 /* USER CODE END PD */
 
@@ -95,6 +115,133 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+HAL_StatusTypeDef bmp280_read_register(uint8_t reg_addr, uint8_t *value)
+{
+    return HAL_I2C_Mem_Read(
+        &hi2c2,
+        BME280_I2C_ADDR,
+        reg_addr,
+        I2C_MEMADD_SIZE_8BIT,
+        value,
+        1,
+        HAL_MAX_DELAY
+    );
+}
+
+void print_bmp280_debug_registers(void)
+{
+    uint8_t status = 0;
+    uint8_t ctrl_meas = 0;
+    uint8_t config = 0;
+    char buffer[120];
+
+    bmp280_read_register(BMP280_REG_STATUS, &status);
+    bmp280_read_register(BMP280_REG_CTRL_MEAS, &ctrl_meas);
+    bmp280_read_register(BMP280_REG_CONFIG, &config);
+
+    int len = snprintf(
+        buffer,
+        sizeof(buffer),
+        "BMP280 regs: status=0x%02X, ctrl_meas=0x%02X, config=0x%02X\r\n",
+        status,
+        ctrl_meas,
+        config
+    );
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
+
+HAL_StatusTypeDef bmp280_write_register(uint8_t reg_addr, uint8_t value)
+{
+    return HAL_I2C_Mem_Write(
+        &hi2c2,
+        BME280_I2C_ADDR,
+        reg_addr,
+        I2C_MEMADD_SIZE_8BIT,
+        &value,
+        1,
+        HAL_MAX_DELAY
+    );
+}
+
+HAL_StatusTypeDef bmp280_soft_reset(void)
+{
+    return bmp280_write_register(BMP280_REG_RESET, BMP280_RESET_VALUE);
+}
+
+HAL_StatusTypeDef bmp280_configure(void)
+{
+    return bmp280_write_register(BMP280_REG_CONFIG, BMP280_CONFIG_VALUE);
+}
+
+HAL_StatusTypeDef bmp280_trigger_forced_measurement(void)
+{
+    return bmp280_write_register(BMP280_REG_CTRL_MEAS, BMP280_CTRL_MEAS_FORCED);
+}
+
+HAL_StatusTypeDef bmp280_read_raw_data(BMP280_RawData_t *raw_data)
+{
+    uint8_t raw_buffer[BMP280_RAW_DATA_LENGTH];
+
+    HAL_StatusTypeDef result = HAL_I2C_Mem_Read(
+        &hi2c2,
+        BME280_I2C_ADDR,
+        BMP280_REG_PRESS_MSB,
+        I2C_MEMADD_SIZE_8BIT,
+        raw_buffer,
+        BMP280_RAW_DATA_LENGTH,
+        HAL_MAX_DELAY
+    );
+
+    if (result != HAL_OK)
+    {
+        return result;
+    }
+
+    char dbg[120];
+
+    int dbg_len = snprintf(
+        dbg,
+        sizeof(dbg),
+        "raw bytes: %02X %02X %02X %02X %02X %02X\r\n",
+        raw_buffer[0],
+        raw_buffer[1],
+        raw_buffer[2],
+        raw_buffer[3],
+        raw_buffer[4],
+        raw_buffer[5]
+    );
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)dbg, dbg_len, HAL_MAX_DELAY);
+
+    raw_data->raw_pressure =
+        ((int32_t)raw_buffer[0] << 12) |
+        ((int32_t)raw_buffer[1] << 4)  |
+        ((int32_t)raw_buffer[2] >> 4);
+
+    raw_data->raw_temperature =
+        ((int32_t)raw_buffer[3] << 12) |
+        ((int32_t)raw_buffer[4] << 4)  |
+        ((int32_t)raw_buffer[5] >> 4);
+
+    return HAL_OK;
+}
+
+void print_bmp280_raw_data(const BMP280_RawData_t *raw_data)
+{
+    char buffer[120];
+
+    int len = snprintf(
+        buffer,
+        sizeof(buffer),
+        "BMP280 raw: temp=%ld, press=%ld\r\n",
+        (long)raw_data->raw_temperature,
+        (long)raw_data->raw_pressure
+    );
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
 
 uint16_t u16_from_lsb_msb(uint8_t lsb, uint8_t msb)
 {
@@ -429,6 +576,18 @@ int main(void)
 
   print_bme280_chip_id();
 
+  if (bmp280_soft_reset() == HAL_OK)
+  {
+      char msg[] = "BMP280 soft reset: OK\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+      HAL_Delay(100);
+  }
+  else
+  {
+      char msg[] = "BMP280 soft reset: ERROR\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+  }
+
   if (bmp280_read_calibration(&bmp280_calib) == HAL_OK)
   {
       print_bmp280_calibration(&bmp280_calib);
@@ -436,6 +595,17 @@ int main(void)
   else
   {
       char msg[] = "BMP280 calibration read failed\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+  }
+
+  if (bmp280_configure() == HAL_OK)
+  {
+      char msg[] = "BMP280 configure: OK\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+  }
+  else
+  {
+      char msg[] = "BMP280 configure: ERROR\r\n";
       HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
   }
 
@@ -451,6 +621,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  uint32_t now = HAL_GetTick();
+
 	  if ((now - last_log_time) >= UART_LOG_INTERVAL_MS)
 	  {
 	      uint8_t button = read_user_button();
@@ -461,6 +632,33 @@ int main(void)
 		  update_situation_led(current_situation);
 
 		  send_sensor_log(now, adc_raw, adc_mv, button, current_situation);
+
+		  BMP280_RawData_t bmp280_raw;
+
+		  if (bmp280_trigger_forced_measurement() == HAL_OK)
+		  {
+		      print_bmp280_debug_registers();
+
+		      HAL_Delay(50);
+
+		      print_bmp280_debug_registers();
+
+		      if (bmp280_read_raw_data(&bmp280_raw) == HAL_OK)
+		      {
+		          print_bmp280_raw_data(&bmp280_raw);
+		      }
+		      else
+		      {
+		          char msg[] = "BMP280 raw read failed\r\n";
+		          HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+		      }
+		  }
+		  else
+		  {
+		      char msg[] = "BMP280 forced measurement failed\r\n";
+		      HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+		  }
+
 		  last_log_time = now;
 	  }
 

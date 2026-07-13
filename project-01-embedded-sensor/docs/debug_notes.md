@@ -100,3 +100,52 @@ The first scan output was leftover/partial UART output from the previous run. Af
 ### Result
 
 No code issue was found. The I2C scan runs once during startup.
+
+## BMP280 Raw Measurement Registers Stuck
+
+### Problem
+
+The BMP280 sensor was detected correctly over I2C, but raw temperature and pressure values stayed fixed.
+
+Observed output:
+
+```text
+raw bytes: FF FF 00 FF FF 00
+BMP280 raw: temp=1048560, press=1048560
+```
+
+### Tests Performed
+
+* I2C scan found the sensor at `0x76`
+* Chip ID register returned `0x58`
+* Sensor was detected as BMP280
+* Calibration registers were read successfully
+* CSB was connected to `3.3V`
+* SDO was connected to `GND`
+* Forced measurement was triggered through `ctrl_meas`
+* Software reset was tested
+* Raw pressure and temperature registers were read from `0xF7–0xFC`
+
+Then SDO was connected to `3.3V` and the I2C address was changed to `0x77`.
+
+The sensor was again detected correctly:
+
+```text
+Device found at 0x77
+Chip ID: 0x58
+Sensor detected: BMP280
+```
+
+However, the raw measurement registers still returned:
+
+```text
+raw bytes: FF FF 00 FF FF 00
+```
+
+### Conclusion
+
+The STM32 I2C communication, register read/write operations, chip ID read, calibration read, software reset, and forced measurement command are working.
+
+The raw measurement output registers remain stuck, which suggests a possible sensor module, breakout board, or clone hardware issue.
+
+For this project, the BMP280 measurement issue is documented as a hardware/module limitation. The project can continue with the working ADC logger and documented BMP280 bring-up/debug process.
