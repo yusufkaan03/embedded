@@ -37,6 +37,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define RX_BUFFER_SIZE 32U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,8 +51,13 @@
 /* USER CODE BEGIN PV */
 
 uint8_t uart_rx_byte;
+uint8_t rx_buffer[RX_BUFFER_SIZE];
 
-volatile uint8_t uart_rx_ready = 0U;
+volatile uint8_t rx_index = 0U;
+volatile uint8_t line_ready = 0U;
+volatile uint8_t discard_until_newline = 0U;
+volatile uint8_t rx_overflow = 0U;
+volatile uint8_t rx_rearm_error = 0U;
 
 /* USER CODE END PV */
 
@@ -115,16 +122,53 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  if (uart_rx_ready == 1U)
+	  if (line_ready == 1U)
 	  {
-		  HAL_UART_Transmit(&huart2, &uart_rx_byte, 1U, HAL_MAX_DELAY);
+	      const uint8_t prefix[] = "RX:";
+	      const uint8_t newline[] = "\r\n";
 
-		    uart_rx_ready = 0U;
+	      HAL_UART_Transmit(
+	          &huart2,
+	          (uint8_t *)prefix,
+	          sizeof(prefix) - 1U,
+	          HAL_MAX_DELAY
+	      );
 
-		  if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
-		  {
-			  Error_Handler();
-		  }
+	      HAL_UART_Transmit(
+	          &huart2,
+	          rx_buffer,
+	          rx_index,
+	          HAL_MAX_DELAY
+	      );
+
+	      HAL_UART_Transmit(
+	          &huart2,
+	          (uint8_t *)newline,
+	          sizeof(newline) - 1U,
+	          HAL_MAX_DELAY
+	      );
+
+	      rx_index = 0U;
+	      line_ready = 0U;
+	  }
+
+	  if (rx_overflow == 1U)
+	  {
+	      const uint8_t overflow_message[] = "ERR:RX_OVERFLOW\r\n";
+
+	      HAL_UART_Transmit(
+	          &huart2,
+	          (uint8_t *)overflow_message,
+	          sizeof(overflow_message) - 1U,
+	          HAL_MAX_DELAY
+	      );
+
+	      rx_overflow = 0U;
+	  }
+
+	  if (rx_rearm_error == 1U)
+	  {
+	      Error_Handler();
 	  }
   }
   /* USER CODE END 3 */
@@ -182,10 +226,42 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2)
     {
-        uart_rx_ready = 1U;
+        if (line_ready == 0U)
+        {
+            if ((uart_rx_byte == '\r') || (uart_rx_byte == '\n'))
+            {
+                if (discard_until_newline == 1U)
+                {
+                    discard_until_newline = 0U;
+                    rx_index = 0U;
+                    rx_overflow = 1U;
+                }
+                else if (rx_index > 0U)
+                {
+                    rx_buffer[rx_index] = '\0';
+                    line_ready = 1U;
+                }
+            }
+            else if (discard_until_newline == 0U)
+            {
+                if (rx_index < (RX_BUFFER_SIZE - 1U))
+                {
+                    rx_buffer[rx_index] = uart_rx_byte;
+                    rx_index++;
+                }
+                else
+                {
+                    discard_until_newline = 1U;
+                }
+            }
+        }
+
+        if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
+        {
+            rx_rearm_error = 1U;
+        }
     }
 }
-
 /* USER CODE END 4 */
 
 /**
