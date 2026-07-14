@@ -59,6 +59,8 @@ volatile uint8_t discard_until_newline = 0U;
 volatile uint8_t rx_overflow = 0U;
 volatile uint8_t rx_rearm_error = 0U;
 
+static uint8_t green_led_state = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -85,6 +87,9 @@ static void uart_send_text(const char *text)
 
 static void process_command(const char *command)
 {
+    static const char set_led_prefix[] = "SET_LED ";
+    const size_t set_led_prefix_length = sizeof(set_led_prefix) - 1U;
+
     if (strcmp(command, "PING") == 0)
     {
         uart_send_text("PONG\r\n");
@@ -92,6 +97,56 @@ static void process_command(const char *command)
     else if (strcmp(command, "GET_VERSION") == 0)
     {
         uart_send_text("VERSION:1.0.0\r\n");
+    }
+    else if (strcmp(command, "GET_LED") == 0)
+    {
+        if (green_led_state == 1U)
+        {
+            uart_send_text("LED:1\r\n");
+        }
+        else
+        {
+            uart_send_text("LED:0\r\n");
+        }
+    }
+    else if (strncmp(
+                 command,
+                 set_led_prefix,
+                 set_led_prefix_length
+             ) == 0)
+    {
+        const char *payload = command + set_led_prefix_length;
+
+        if (strcmp(payload, "1") == 0)
+        {
+            HAL_GPIO_WritePin(
+                GREEN_LED_GPIO_Port,
+                GREEN_LED_Pin,
+                GPIO_PIN_SET
+            );
+
+            green_led_state = 1U;
+            uart_send_text("OK:LED_ON\r\n");
+        }
+        else if (strcmp(payload, "0") == 0)
+        {
+            HAL_GPIO_WritePin(
+                GREEN_LED_GPIO_Port,
+                GREEN_LED_Pin,
+                GPIO_PIN_RESET
+            );
+
+            green_led_state = 0U;
+            uart_send_text("OK:LED_OFF\r\n");
+        }
+        else
+        {
+            uart_send_text("ERR:INVALID_PAYLOAD\r\n");
+        }
+    }
+    else if (strcmp(command, "SET_LED") == 0)
+    {
+        uart_send_text("ERR:INVALID_PAYLOAD\r\n");
     }
     else
     {
