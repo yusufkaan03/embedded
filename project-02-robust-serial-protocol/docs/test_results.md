@@ -49,4 +49,16 @@
 | Buffer overflow | More than 31 characters | `ERR:RX_OVERFLOW` | PASS |
 | Overflow recovery | `PING` after overflow | `PONG` | PASS |
 
+## LED Command Tests
 
+| Test | Input | Expected | Result |
+|---|---|---|---|
+| Initial LED state | `GET_LED` | `LED:0` | PASS |
+| Turn LED on | `SET_LED 1` | `OK:LED_ON` | PASS |
+| Read LED on state | `GET_LED` | `LED:1` | PASS |
+| Turn LED off | `SET_LED 0` | `OK:LED_OFF` | PASS |
+| Read LED off state | `GET_LED` | `LED:0` | PASS |
+| Invalid value | `SET_LED 2` | `ERR:INVALID_PAYLOAD` | PASS |
+| Missing payload | `SET_LED` | `ERR:INVALID_PAYLOAD` | PASS |
+| Extra payload | `SET_LED 1 EXTRA` | `ERR:INVALID_PAYLOAD` | PASS |
+| Unknown command | `LED_ON` | `ERR:UNKNOWN_COMMAND` | PASS |

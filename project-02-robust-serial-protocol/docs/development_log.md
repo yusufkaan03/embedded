@@ -25,3 +25,18 @@
 - Interrupt and main-loop task separation.
 - Why interrupt reception must be re-armed.
 - Difference between terminal local echo and device echo.
+
+## Stage 4 — Parameterized LED Commands
+
+- Added `SET_LED 1` and `SET_LED 0` commands.
+- Added the `GET_LED` status query.
+- Separated the command prefix from its payload.
+- Added invalid payload handling.
+- Controlled the onboard green LED through the serial protocol.
+
+### New Concepts
+
+- Prefix comparison with `strncmp()`
+- Payload extraction using pointer arithmetic
+- Application state tracking
+- Command validation
