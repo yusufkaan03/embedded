@@ -37,3 +37,16 @@
 **Expected result:** `ABC123`
 
 **Result:** PASS
+
+## Text Command Handler Tests
+
+| Test | Input | Expected | Result |
+|---|---|---|---|
+| PING command | `PING` | `PONG` | PASS |
+| Version query | `GET_VERSION` | `VERSION:1.0.0` | PASS |
+| Unknown command | `HELLO` | `ERR:UNKNOWN_COMMAND` | PASS |
+| Case sensitivity | `ping` | `ERR:UNKNOWN_COMMAND` | PASS |
+| Buffer overflow | More than 31 characters | `ERR:RX_OVERFLOW` | PASS |
+| Overflow recovery | `PING` after overflow | `PONG` | PASS |
+
+
