@@ -65,10 +65,39 @@ volatile uint8_t rx_rearm_error = 0U;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+static void uart_send_text(const char *text);
+static void process_command(const char *command);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static void uart_send_text(const char *text)
+{
+    HAL_UART_Transmit(
+        &huart2,
+        (uint8_t *)text,
+        strlen(text),
+        HAL_MAX_DELAY
+    );
+}
+
+static void process_command(const char *command)
+{
+    if (strcmp(command, "PING") == 0)
+    {
+        uart_send_text("PONG\r\n");
+    }
+    else if (strcmp(command, "GET_VERSION") == 0)
+    {
+        uart_send_text("VERSION:1.0.0\r\n");
+    }
+    else
+    {
+        uart_send_text("ERR:UNKNOWN_COMMAND\r\n");
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -124,29 +153,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  if (line_ready == 1U)
 	  {
-	      const uint8_t prefix[] = "RX:";
-	      const uint8_t newline[] = "\r\n";
-
-	      HAL_UART_Transmit(
-	          &huart2,
-	          (uint8_t *)prefix,
-	          sizeof(prefix) - 1U,
-	          HAL_MAX_DELAY
-	      );
-
-	      HAL_UART_Transmit(
-	          &huart2,
-	          rx_buffer,
-	          rx_index,
-	          HAL_MAX_DELAY
-	      );
-
-	      HAL_UART_Transmit(
-	          &huart2,
-	          (uint8_t *)newline,
-	          sizeof(newline) - 1U,
-	          HAL_MAX_DELAY
-	      );
+	      process_command((char *)rx_buffer);
 
 	      rx_index = 0U;
 	      line_ready = 0U;
@@ -154,15 +161,7 @@ int main(void)
 
 	  if (rx_overflow == 1U)
 	  {
-	      const uint8_t overflow_message[] = "ERR:RX_OVERFLOW\r\n";
-
-	      HAL_UART_Transmit(
-	          &huart2,
-	          (uint8_t *)overflow_message,
-	          sizeof(overflow_message) - 1U,
-	          HAL_MAX_DELAY
-	      );
-
+	      uart_send_text("ERR:RX_OVERFLOW\r\n");
 	      rx_overflow = 0U;
 	  }
 
