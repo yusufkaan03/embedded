@@ -70,6 +70,12 @@ typedef enum
     PARSER_READ_CHECKSUM
 } ProtocolParserState_t;
 
+typedef enum
+{
+    UART_RX_MODE_TEXT = 0,
+    UART_RX_MODE_BINARY
+} UartRxMode_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -90,6 +96,19 @@ typedef enum
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+
+typedef struct
+{
+    uint8_t command;
+    uint8_t length;
+    uint8_t payload[PROTOCOL_MAX_PAYLOAD_SIZE];
+    uint8_t checksum;
+} ProtocolPacket_t;
+
+static ProtocolPacket_t completed_packet;
+
+static volatile bool completed_packet_ready = false;
+static volatile bool bad_checksum_pending = false;
 
 uint8_t uart_rx_byte;
 uint8_t rx_buffer[RX_BUFFER_SIZE];
@@ -115,6 +134,8 @@ static uint8_t parser_calculated_checksum = 0U;
 
 static bool parser_packet_complete = false;
 static bool parser_packet_valid = false;
+
+static volatile UartRxMode_t uart_rx_mode = UART_RX_MODE_TEXT;
 
 /* USER CODE END PV */
 
@@ -142,6 +163,10 @@ static bool protocol_parser_stage1_self_test(void);
 static bool protocol_parser_stage2_self_test(void);
 
 static bool protocol_parser_stage4_self_test(void);
+
+static void protocol_publish_valid_packet(void);
+
+static bool protocol_parser_stage5_self_test(void);
 
 /* USER CODE END PFP */
 
@@ -374,10 +399,12 @@ static void protocol_parser_process_byte(uint8_t byte)
             if (parser_received_checksum == parser_calculated_checksum)
             {
                 parser_packet_valid = true;
+                protocol_publish_valid_packet();
             }
             else
             {
                 parser_packet_valid = false;
+                bad_checksum_pending = true;
             }
 
             parser_state = PARSER_WAIT_START;
@@ -709,6 +736,116 @@ static bool protocol_parser_stage4_self_test(void)
     return true;
 }
 
+static void protocol_publish_valid_packet(void)
+{
+    completed_packet.command = parser_command;
+    completed_packet.length = parser_length;
+    completed_packet.checksum = parser_received_checksum;
+
+    for (uint8_t index = 0U; index < parser_length; index++)
+    {
+        completed_packet.payload[index] = parser_payload[index];
+    }
+
+    completed_packet_ready = true;
+}
+
+static bool protocol_parser_stage5_self_test(void)
+{
+    /*
+     * Test 1:
+     * A valid SET_LED ON packet must be copied
+     * into completed_packet.
+     */
+    protocol_parser_reset();
+
+    completed_packet_ready = false;
+    bad_checksum_pending = false;
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(0x03U);
+
+    if (completed_packet_ready == false)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (bad_checksum_pending == true)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (completed_packet.command != PROTOCOL_CMD_SET_LED)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (completed_packet.length != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (completed_packet.payload[0] != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (completed_packet.checksum != 0x03U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Simulate that the main loop consumed the packet.
+     */
+    completed_packet_ready = false;
+
+    /*
+     * Test 2:
+     * A packet with a bad checksum must not be published.
+     */
+    bad_checksum_pending = false;
+
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(0x00U);
+
+    if (completed_packet_ready == true)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (bad_checksum_pending == false)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Restore clean runtime state after the self-test.
+     */
+    completed_packet_ready = false;
+    bad_checksum_pending = false;
+
+    protocol_parser_reset();
+
+    return true;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -792,6 +929,15 @@ int main(void)
       uart_send_text("PARSER_STAGE4_TEST:FAIL\r\n");
   }
 
+  if (protocol_parser_stage5_self_test())
+  {
+      uart_send_text("PARSER_STAGE5_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("PARSER_STAGE5_TEST:FAIL\r\n");
+  }
+
   if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
   {
 	  Error_Handler();
@@ -823,6 +969,27 @@ int main(void)
 	  if (rx_rearm_error == 1U)
 	  {
 	      Error_Handler();
+	  }
+
+	  if (completed_packet_ready == true)
+	  {
+	      if ((completed_packet.command == PROTOCOL_CMD_PING) &&
+	          (completed_packet.length == 0U))
+	      {
+	          uart_send_text("BIN:PONG\r\n");
+	      }
+	      else
+	      {
+	          uart_send_text("BIN:PACKET_OK\r\n");
+	      }
+
+	      completed_packet_ready = false;
+	  }
+
+	  if (bad_checksum_pending == true)
+	  {
+	      uart_send_text("BIN:BAD_CHECKSUM\r\n");
+	      bad_checksum_pending = false;
 	  }
   }
   /* USER CODE END 3 */
@@ -880,35 +1047,57 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2)
     {
-        if (line_ready == 0U)
-        {
-            if ((uart_rx_byte == '\r') || (uart_rx_byte == '\n'))
-            {
-                if (discard_until_newline == 1U)
-                {
-                    discard_until_newline = 0U;
-                    rx_index = 0U;
-                    rx_overflow = 1U;
-                }
-                else if (rx_index > 0U)
-                {
-                    rx_buffer[rx_index] = '\0';
-                    line_ready = 1U;
-                }
-            }
-            else if (discard_until_newline == 0U)
-            {
-                if (rx_index < (RX_BUFFER_SIZE - 1U))
-                {
-                    rx_buffer[rx_index] = uart_rx_byte;
-                    rx_index++;
-                }
-                else
-                {
-                    discard_until_newline = 1U;
-                }
-            }
-        }
+    	if ((uart_rx_mode == UART_RX_MODE_BINARY) ||
+    	    (uart_rx_byte == PROTOCOL_START_BYTE))
+    	{
+    	    if (uart_rx_mode == UART_RX_MODE_TEXT)
+    	    {
+    	        protocol_parser_reset();
+    	        uart_rx_mode = UART_RX_MODE_BINARY;
+    	    }
+
+    	    protocol_parser_process_byte(uart_rx_byte);
+
+    	    if (parser_state == PARSER_WAIT_START)
+    	    {
+    	        uart_rx_mode = UART_RX_MODE_TEXT;
+    	    }
+    	}
+    	else
+    	{
+    	    /*
+    	     * Existing text command reception code.
+    	     */
+    	    if (line_ready == 0U)
+    	    {
+    	        if ((uart_rx_byte == '\r') || (uart_rx_byte == '\n'))
+    	        {
+    	            if (discard_until_newline == 1U)
+    	            {
+    	                discard_until_newline = 0U;
+    	                rx_index = 0U;
+    	                rx_overflow = 1U;
+    	            }
+    	            else if (rx_index > 0U)
+    	            {
+    	                rx_buffer[rx_index] = '\0';
+    	                line_ready = 1U;
+    	            }
+    	        }
+    	        else if (discard_until_newline == 0U)
+    	        {
+    	            if (rx_index < (RX_BUFFER_SIZE - 1U))
+    	            {
+    	                rx_buffer[rx_index] = uart_rx_byte;
+    	                rx_index++;
+    	            }
+    	            else
+    	            {
+    	                discard_until_newline = 1U;
+    	            }
+    	        }
+    	    }
+    	}
 
         if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
         {
