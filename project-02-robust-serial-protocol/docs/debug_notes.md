@@ -28,3 +28,32 @@ The final learning implementation was simplified so that:
 ### Lesson Learned
 
 Seeing transmitted data from STM32 proves only the TX path. UART RX must be tested separately.
+
+## Parser State Fall-Through
+
+### Problem
+
+Both parser stage self-tests failed after adding the length state.
+
+### Cause
+
+The `PARSER_READ_COMMAND` case did not contain a `break` statement.  
+Therefore, the same byte was processed first as the command and then again as the payload length.
+
+### Incorrect Flow
+
+```text
+0x03 received
+→ parser_command = 0x03
+→ missing break
+→ parser_length = 0x03
+→ parser state became PARSER_READ_PAYLOAD
+```
+
+### Solution
+
+Added `break` after transitioning from `PARSER_READ_COMMAND` to `PARSER_READ_LENGTH`.
+
+### Lesson Learned
+
+C switch cases continue into the next case unless execution is stopped with `break`, `return`, or another control-flow statement. Parser self-tests detected the error before integration with real UART binary data.

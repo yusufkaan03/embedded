@@ -62,3 +62,14 @@
 | Missing payload | `SET_LED` | `ERR:INVALID_PAYLOAD` | PASS |
 | Extra payload | `SET_LED 1 EXTRA` | `ERR:INVALID_PAYLOAD` | PASS |
 | Unknown command | `LED_ON` | `ERR:UNKNOWN_COMMAND` | PASS |
+
+## Parser State Tests
+
+| Test | Expected Result | Result |
+|---|---|---|
+| Ignore non-start byte | Remain in `PARSER_WAIT_START` | PASS |
+| Detect `0xAA` | Move to `PARSER_READ_COMMAND` | PASS |
+| Store command byte | Move to `PARSER_READ_LENGTH` | PASS |
+| Zero payload length | Move to `PARSER_READ_CHECKSUM` | PASS |
+| Valid non-zero length | Move to `PARSER_READ_PAYLOAD` | PASS |
+| Length above 16 | Reset to `PARSER_WAIT_START` | PASS |
