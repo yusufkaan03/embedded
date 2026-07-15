@@ -94,3 +94,13 @@
 | Valid PING without payload | `AA 01 00 01` | Packet valid | PASS |
 | Parser returns to start state | Complete packet | `PARSER_WAIT_START` | PASS |
 | Text protocol regression | `PING` | `PONG` | PASS |
+
+## Real UART Binary Integration Tests
+
+| Test | Input | Expected Result | Result |
+|---|---|---|---|
+| Valid binary PING | `AA 01 00 01` | `BIN:PONG` | PASS |
+| Invalid binary PING checksum | `AA 01 00 00` | `BIN:BAD_CHECKSUM` | PASS |
+| Text protocol regression | `PING` | `PONG` | PASS |
+| Binary-to-text mode recovery | Binary packet followed by text command | Text command operates normally | PASS |
+

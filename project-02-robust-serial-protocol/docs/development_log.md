@@ -92,3 +92,37 @@ Receive checksum byte
 The binary parser is currently tested using internal self-tests.
 It is not yet connected to the real UART receive stream.
 
+## Stage 12 — Real UART Binary Parser Integration
+
+- Connected the binary state-machine parser to the USART2 receive callback.
+- Added automatic switching between text and binary receive modes.
+- Entered binary mode when the start byte `0xAA` was received.
+- Routed all following packet bytes to the binary parser.
+- Returned to text mode after packet completion.
+- Published valid packets to the main loop.
+- Reported invalid checksum packets without executing them.
+- Preserved the existing text command interface.
+
+### Receive Flow
+
+```text
+UART byte received
+        |
+        +-- Byte is 0xAA or binary mode is active
+        |       |
+        |       +--> Binary parser
+        |
+        +-- Otherwise
+                |
+                +--> Text line buffer
+```
+
+### Current Binary Responses
+
+- Valid binary PING: `BIN:PONG`
+- Valid but unsupported binary packet: `BIN:PACKET_OK`
+- Invalid checksum: `BIN:BAD_CHECKSUM`
+
+### Current Limitation
+
+Binary requests are parsed from real UART data, but responses are still sent as readable text. Binary response packet generation has not yet been implemented.

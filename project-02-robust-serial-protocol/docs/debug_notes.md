@@ -57,3 +57,25 @@ Added `break` after transitioning from `PARSER_READ_COMMAND` to `PARSER_READ_LEN
 ### Lesson Learned
 
 C switch cases continue into the next case unless execution is stopped with `break`, `return`, or another control-flow statement. Parser self-tests detected the error before integration with real UART binary data.
+
+## Serial Port Already in Use
+
+### Problem
+
+The Python binary-packet test could not use `/dev/ttyUSB0` while picocom was still connected to the same serial port.
+
+### Cause
+
+A serial port is normally controlled by only one application at a time. Picocom already owned `/dev/ttyUSB0`, preventing the Python script from opening it.
+
+### Solution
+
+1. Closed picocom using `Ctrl+A`, followed by `Ctrl+X`.
+2. Ran the Python binary-packet test.
+3. Allowed the Python script to close the serial port.
+4. Reopened picocom for text-command testing.
+
+### Lesson Learned
+
+Only one application should access `/dev/ttyUSB0` at a time. Terminal programs must be closed before running another serial client.
+
