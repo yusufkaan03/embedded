@@ -65,3 +65,30 @@ START
 ### Important Detail
 
 The binary payload buffer is not a C string. Therefore, no null terminator (`'\0'`) is required. Only the first `parser_length` bytes are considered valid.
+
+## Stage 10 — Binary Checksum Validation
+
+- Implemented the `PARSER_READ_CHECKSUM` state.
+- Stored the checksum received from the packet.
+- Calculated the expected checksum from command, length and payload.
+- Compared the received and calculated checksum values.
+- Added packet-complete and packet-valid flags.
+- Reset the parser to `PARSER_WAIT_START` after packet completion.
+- Verified packets both with and without payload.
+
+### Validation Flow
+
+```text
+Receive checksum byte
+→ Calculate checksum locally
+→ Compare received and calculated values
+→ Mark packet as complete
+→ Mark packet as valid or invalid
+→ Return to WAIT_START
+```
+
+### Current Limitation
+
+The binary parser is currently tested using internal self-tests.
+It is not yet connected to the real UART receive stream.
+

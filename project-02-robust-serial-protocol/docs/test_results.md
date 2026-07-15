@@ -84,3 +84,13 @@
 | Third byte of three-byte payload | `01` | Index becomes 3, move to checksum state | PASS |
 | Payload order | `01 00 01` | Buffer contains `01 00 01` | PASS |
 | Text protocol regression | `PING` | `PONG` | PASS |
+
+## Binary Checksum Validation Tests
+
+| Test | Packet | Expected Result | Result |
+|---|---|---|---|
+| Valid SET_LED packet | `AA 03 01 01 03` | Packet valid | PASS |
+| Invalid SET_LED checksum | `AA 03 01 01 00` | Packet invalid | PASS |
+| Valid PING without payload | `AA 01 00 01` | Packet valid | PASS |
+| Parser returns to start state | Complete packet | `PARSER_WAIT_START` | PASS |
+| Text protocol regression | `PING` | `PONG` | PASS |
