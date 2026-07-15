@@ -102,6 +102,12 @@ volatile uint8_t rx_rearm_error = 0U;
 
 static uint8_t green_led_state = 0U;
 
+static ProtocolParserState_t parser_state = PARSER_WAIT_START;
+static uint8_t parser_command = 0U;
+
+static uint8_t parser_length = 0U;
+static uint8_t parser_payload_index = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,6 +116,22 @@ void SystemClock_Config(void);
 
 static void uart_send_text(const char *text);
 static void process_command(const char *command);
+
+static uint8_t protocol_calculate_checksum(
+    uint8_t command,
+    uint8_t length,
+    const uint8_t *payload
+);
+
+static bool protocol_checksum_self_test(void);
+
+static void protocol_parser_reset(void);
+
+static void protocol_parser_process_byte(uint8_t byte);
+
+static bool protocol_parser_stage1_self_test(void);
+
+static bool protocol_parser_stage2_self_test(void);
 
 /* USER CODE END PFP */
 
@@ -195,6 +217,230 @@ static void process_command(const char *command)
     }
 }
 
+static uint8_t protocol_calculate_checksum(
+    uint8_t command,
+    uint8_t length,
+    const uint8_t *payload
+)
+{
+    uint8_t checksum = command ^ length;
+
+    for (uint8_t index = 0U; index < length; index++)
+    {
+        checksum ^= payload[index];
+    }
+
+    return checksum;
+}
+
+static bool protocol_checksum_self_test(void)
+{
+    const uint8_t led_on_payload[] = {1U};
+    const uint8_t led_off_payload[] = {0U};
+
+    const uint8_t ping_checksum =
+        protocol_calculate_checksum(
+            PROTOCOL_CMD_PING,
+            0U,
+            NULL
+        );
+
+    const uint8_t led_on_checksum =
+        protocol_calculate_checksum(
+            PROTOCOL_CMD_SET_LED,
+            1U,
+            led_on_payload
+        );
+
+    const uint8_t led_off_checksum =
+        protocol_calculate_checksum(
+            PROTOCOL_CMD_SET_LED,
+            1U,
+            led_off_payload
+        );
+
+    if (ping_checksum != 0x01U)
+    {
+        return false;
+    }
+
+    if (led_on_checksum != 0x03U)
+    {
+        return false;
+    }
+
+    if (led_off_checksum != 0x02U)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+static void protocol_parser_reset(void)
+{
+    parser_state = PARSER_WAIT_START;
+    parser_command = 0U;
+    parser_length = 0U;
+    parser_payload_index = 0U;
+}
+
+static void protocol_parser_process_byte(uint8_t byte)
+{
+    switch (parser_state)
+    {
+        case PARSER_WAIT_START:
+
+            if (byte == PROTOCOL_START_BYTE)
+            {
+                parser_state = PARSER_READ_COMMAND;
+            }
+
+            break;
+
+        case PARSER_READ_COMMAND:
+
+            parser_command = byte;
+            parser_state = PARSER_READ_LENGTH;
+
+            break;
+
+        case PARSER_READ_LENGTH:
+
+            parser_length = byte;
+            parser_payload_index = 0U;
+
+            if (parser_length > PROTOCOL_MAX_PAYLOAD_SIZE)
+            {
+                protocol_parser_reset();
+            }
+            else if (parser_length == 0U)
+            {
+                parser_state = PARSER_READ_CHECKSUM;
+            }
+            else
+            {
+                parser_state = PARSER_READ_PAYLOAD;
+            }
+
+            break;
+
+        default:
+
+            protocol_parser_reset();
+
+            break;
+    }
+}
+
+static bool protocol_parser_stage1_self_test(void)
+{
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(0x55U);
+
+    if (parser_state != PARSER_WAIT_START)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+
+    if (parser_state != PARSER_READ_COMMAND)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+
+    if (parser_command != PROTOCOL_CMD_SET_LED)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_LENGTH)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_reset();
+
+    return true;
+}
+
+static bool protocol_parser_stage2_self_test(void)
+{
+    /*
+     * Test 1:
+     * PING has zero payload bytes.
+     * Parser must continue directly to checksum.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_PING);
+    protocol_parser_process_byte(0U);
+
+    if (parser_length != 0U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_CHECKSUM)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Test 2:
+     * SET_LED has one payload byte.
+     * Parser must continue to payload state.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+
+    if (parser_length != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_PAYLOAD)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Test 3:
+     * Reject lengths larger than the maximum payload size.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(PROTOCOL_MAX_PAYLOAD_SIZE + 1U);
+
+    if (parser_state != PARSER_WAIT_START)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_reset();
+
+    return true;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -232,6 +478,33 @@ int main(void)
   const uint8_t boot_msg[] = "BOOT_OK\r\n";
 
   HAL_UART_Transmit(&huart2, (uint8_t* )boot_msg, sizeof(boot_msg) - 1U, HAL_MAX_DELAY);
+
+  if (protocol_checksum_self_test())
+  {
+      uart_send_text("CHECKSUM_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("CHECKSUM_TEST:FAIL\r\n");
+  }
+
+  if (protocol_parser_stage1_self_test())
+  {
+      uart_send_text("PARSER_STAGE1_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("PARSER_STAGE1_TEST:FAIL\r\n");
+  }
+
+  if (protocol_parser_stage2_self_test())
+  {
+      uart_send_text("PARSER_STAGE2_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("PARSER_STAGE2_TEST:FAIL\r\n");
+  }
 
   if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
   {
