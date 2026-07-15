@@ -108,6 +108,8 @@ static uint8_t parser_command = 0U;
 static uint8_t parser_length = 0U;
 static uint8_t parser_payload_index = 0U;
 
+static uint8_t parser_payload[PROTOCOL_MAX_PAYLOAD_SIZE];
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -325,6 +327,18 @@ static void protocol_parser_process_byte(uint8_t byte)
 
             break;
 
+        case PARSER_READ_PAYLOAD:
+
+            parser_payload[parser_payload_index] = byte;
+            parser_payload_index++;
+
+            if (parser_payload_index >= parser_length)
+            {
+                parser_state = PARSER_READ_CHECKSUM;
+            }
+
+            break;
+
         default:
 
             protocol_parser_reset();
@@ -441,6 +455,102 @@ static bool protocol_parser_stage2_self_test(void)
     return true;
 }
 
+static bool protocol_parser_stage3_self_test(void)
+{
+    /*
+     * Test 1:
+     * SET_LED packet with one payload byte.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(1U);
+
+    if (parser_payload_index != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_payload[0] != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_CHECKSUM)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Test 2:
+     * Generic command with three payload bytes.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(0x06U);
+    protocol_parser_process_byte(3U);
+
+    protocol_parser_process_byte(1U);
+
+    if (parser_payload_index != 1U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_PAYLOAD)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_process_byte(0U);
+
+    if (parser_payload_index != 2U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_PAYLOAD)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_process_byte(1U);
+
+    if (parser_payload_index != 3U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if ((parser_payload[0] != 1U) ||
+        (parser_payload[1] != 0U) ||
+        (parser_payload[2] != 1U))
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_READ_CHECKSUM)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_reset();
+
+    return true;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -504,6 +614,15 @@ int main(void)
   else
   {
       uart_send_text("PARSER_STAGE2_TEST:FAIL\r\n");
+  }
+
+  if (protocol_parser_stage3_self_test())
+  {
+      uart_send_text("PARSER_STAGE3_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("PARSER_STAGE3_TEST:FAIL\r\n");
   }
 
   if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
