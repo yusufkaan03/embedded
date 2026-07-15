@@ -4,4 +4,5 @@
 | Project 00 Independent Rebuild | Independent Application | Copleted |
 | Project 01 Embedded Sensor | Guide Lerarning Project | Completed |
 | Project 01B | Independent Application | Copmleted |
-| Project 02 Robust Serial Protocol | Guide Lerarning Project | In Progress |
+| Project 02 Robust Serial Protocol | Guide Lerarning Project | Comleted |
+| Project 02 Practice 01 UART Byte Echo | Independent Aplication | In Progress |
