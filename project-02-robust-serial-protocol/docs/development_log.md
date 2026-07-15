@@ -40,3 +40,28 @@
 - Payload extraction using pointer arithmetic
 - Application state tracking
 - Command validation
+
+## Stage 9 — Binary Payload Collection
+
+- Added a binary payload buffer.
+- Implemented the `PARSER_READ_PAYLOAD` state.
+- Stored incoming payload bytes sequentially.
+- Used `parser_payload_index` to track the number of received payload bytes.
+- Transitioned to `PARSER_READ_CHECKSUM` after receiving the number of bytes specified by `LENGTH`.
+- Verified one-byte and three-byte payload handling.
+
+### Parser Flow
+
+```text
+START
+→ COMMAND
+→ LENGTH
+→ PAYLOAD[0]
+→ PAYLOAD[1]
+→ ...
+→ CHECKSUM
+```
+
+### Important Detail
+
+The binary payload buffer is not a C string. Therefore, no null terminator (`'\0'`) is required. Only the first `parser_length` bytes are considered valid.

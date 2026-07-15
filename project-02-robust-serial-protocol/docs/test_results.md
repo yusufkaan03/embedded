@@ -73,3 +73,14 @@
 | Zero payload length | Move to `PARSER_READ_CHECKSUM` | PASS |
 | Valid non-zero length | Move to `PARSER_READ_PAYLOAD` | PASS |
 | Length above 16 | Reset to `PARSER_WAIT_START` | PASS |
+
+## Binary Payload Parser Tests
+
+| Test | Input | Expected Result | Result |
+|---|---|---|---|
+| One-byte payload | `AA 03 01 01` | Store `01` and move to checksum state | PASS |
+| First byte of three-byte payload | `01` | Index becomes 1, remain in payload state | PASS |
+| Second byte of three-byte payload | `00` | Index becomes 2, remain in payload state | PASS |
+| Third byte of three-byte payload | `01` | Index becomes 3, move to checksum state | PASS |
+| Payload order | `01 00 01` | Buffer contains `01 00 01` | PASS |
+| Text protocol regression | `PING` | `PONG` | PASS |
