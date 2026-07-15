@@ -110,6 +110,12 @@ static uint8_t parser_payload_index = 0U;
 
 static uint8_t parser_payload[PROTOCOL_MAX_PAYLOAD_SIZE];
 
+static uint8_t parser_received_checksum = 0U;
+static uint8_t parser_calculated_checksum = 0U;
+
+static bool parser_packet_complete = false;
+static bool parser_packet_valid = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -134,6 +140,8 @@ static void protocol_parser_process_byte(uint8_t byte);
 static bool protocol_parser_stage1_self_test(void);
 
 static bool protocol_parser_stage2_self_test(void);
+
+static bool protocol_parser_stage4_self_test(void);
 
 /* USER CODE END PFP */
 
@@ -291,14 +299,25 @@ static void protocol_parser_process_byte(uint8_t byte)
 {
     switch (parser_state)
     {
-        case PARSER_WAIT_START:
 
-            if (byte == PROTOCOL_START_BYTE)
-            {
-                parser_state = PARSER_READ_COMMAND;
-            }
+    case PARSER_WAIT_START:
 
-            break;
+        if (byte == PROTOCOL_START_BYTE)
+        {
+            parser_command = 0U;
+            parser_length = 0U;
+            parser_payload_index = 0U;
+
+            parser_received_checksum = 0U;
+            parser_calculated_checksum = 0U;
+
+            parser_packet_complete = false;
+            parser_packet_valid = false;
+
+            parser_state = PARSER_READ_COMMAND;
+        }
+
+        break;
 
         case PARSER_READ_COMMAND:
 
@@ -336,6 +355,32 @@ static void protocol_parser_process_byte(uint8_t byte)
             {
                 parser_state = PARSER_READ_CHECKSUM;
             }
+
+            break;
+
+        case PARSER_READ_CHECKSUM:
+
+            parser_received_checksum = byte;
+
+            parser_calculated_checksum =
+                protocol_calculate_checksum(
+                    parser_command,
+                    parser_length,
+                    parser_payload
+                );
+
+            parser_packet_complete = true;
+
+            if (parser_received_checksum == parser_calculated_checksum)
+            {
+                parser_packet_valid = true;
+            }
+            else
+            {
+                parser_packet_valid = false;
+            }
+
+            parser_state = PARSER_WAIT_START;
 
             break;
 
@@ -551,6 +596,119 @@ static bool protocol_parser_stage3_self_test(void)
     return true;
 }
 
+static bool protocol_parser_stage4_self_test(void)
+{
+    /*
+     * Test 1:
+     * Valid SET_LED ON packet.
+     * AA 03 01 01 03
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(0x03U);
+
+    if (parser_packet_complete == false)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_packet_valid == false)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_received_checksum != 0x03U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_calculated_checksum != 0x03U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_state != PARSER_WAIT_START)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Test 2:
+     * Invalid SET_LED ON packet.
+     * Correct checksum should be 0x03,
+     * but received checksum is 0x00.
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_SET_LED);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(1U);
+    protocol_parser_process_byte(0x00U);
+
+    if (parser_packet_complete == false)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_packet_valid == true)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_received_checksum != 0x00U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_calculated_checksum != 0x03U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    /*
+     * Test 3:
+     * Valid PING packet with no payload.
+     * AA 01 00 01
+     */
+    protocol_parser_reset();
+
+    protocol_parser_process_byte(PROTOCOL_START_BYTE);
+    protocol_parser_process_byte(PROTOCOL_CMD_PING);
+    protocol_parser_process_byte(0U);
+    protocol_parser_process_byte(0x01U);
+
+    if ((parser_packet_complete == false) ||
+        (parser_packet_valid == false))
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    if (parser_calculated_checksum != 0x01U)
+    {
+        protocol_parser_reset();
+        return false;
+    }
+
+    protocol_parser_reset();
+
+    return true;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -623,6 +781,15 @@ int main(void)
   else
   {
       uart_send_text("PARSER_STAGE3_TEST:FAIL\r\n");
+  }
+
+  if (protocol_parser_stage4_self_test())
+  {
+      uart_send_text("PARSER_STAGE4_TEST:PASS\r\n");
+  }
+  else
+  {
+      uart_send_text("PARSER_STAGE4_TEST:FAIL\r\n");
   }
 
   if (HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1U) != HAL_OK)
