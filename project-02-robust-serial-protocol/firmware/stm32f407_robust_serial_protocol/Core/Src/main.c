@@ -32,12 +32,53 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef enum
+{
+    PROTOCOL_CMD_PING          = 0x01U,
+    PROTOCOL_CMD_GET_VERSION   = 0x02U,
+    PROTOCOL_CMD_SET_LED       = 0x03U,
+    PROTOCOL_CMD_GET_LED       = 0x04U,
+    PROTOCOL_CMD_RESET_COUNTER = 0x05U
+} ProtocolCommand_t;
+
+typedef enum
+{
+    PROTOCOL_RESP_PONG          = 0x81U,
+    PROTOCOL_RESP_VERSION       = 0x82U,
+    PROTOCOL_RESP_LED_SET       = 0x83U,
+    PROTOCOL_RESP_LED_STATE     = 0x84U,
+    PROTOCOL_RESP_COUNTER_RESET = 0x85U,
+    PROTOCOL_RESP_ERROR         = 0xFFU
+} ProtocolResponse_t;
+
+typedef enum
+{
+    PROTOCOL_ERROR_UNKNOWN_COMMAND = 0x01U,
+    PROTOCOL_ERROR_INVALID_LENGTH  = 0x02U,
+    PROTOCOL_ERROR_INVALID_PAYLOAD = 0x03U,
+    PROTOCOL_ERROR_BAD_CHECKSUM    = 0x04U,
+    PROTOCOL_ERROR_RX_TIMEOUT      = 0x05U,
+    PROTOCOL_ERROR_BUFFER_OVERFLOW = 0x06U
+} ProtocolError_t;
+
+typedef enum
+{
+    PARSER_WAIT_START = 0,
+    PARSER_READ_COMMAND,
+    PARSER_READ_LENGTH,
+    PARSER_READ_PAYLOAD,
+    PARSER_READ_CHECKSUM
+} ProtocolParserState_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define RX_BUFFER_SIZE 32U
+#define RX_BUFFER_SIZE 				32U
+
+#define PROTOCOL_START_BYTE        0xAAU
+#define PROTOCOL_MAX_PAYLOAD_SIZE  16U
 
 /* USER CODE END PD */
 
