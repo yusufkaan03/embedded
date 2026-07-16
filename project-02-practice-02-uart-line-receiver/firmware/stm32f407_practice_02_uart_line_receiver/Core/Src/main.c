@@ -25,18 +25,19 @@
 /* USER CODE BEGIN Includes */
 
 #include <string.h>
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define RX_BUFFER_SIZE 32U
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define msg_line 32U
 
 /* USER CODE END PD */
 
@@ -52,8 +53,8 @@
 static uint8_t rx_msg_byte;
 static uint8_t rx_msg_ready;
 static uint8_t msg_ready_send = 0U;
-static uint8_t rx_index = 0U;
-static uint8_t rx_buffer[RX_BUFFER_SIZE];
+static uint8_t msg_index = 0U;
+static uint8_t buffer[msg_line];
 
 /* USER CODE END PV */
 
@@ -71,21 +72,21 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void rx_buffer_writer(uint8_t byte)
+void byte_writer(void)
 {
-	rx_buffer[rx_index] = rx_msg_byte;
+	buffer[msg_index] = rx_msg_byte;
+	msg_index++;
 
-	rx_index ++;
 }
 
-void send_ready_control (void)
+void send_check(void)
 {
-
-	const char now = (char)rx_buffer[rx_index];
-
-	if (strcmp(&now, "\n") == 0)
+	if(rx_msg_byte == '\r')
 	{
 		msg_ready_send = 1U;
+
+		buffer[msg_index] = '\n';
+
 	}
 
 	else
@@ -94,6 +95,13 @@ void send_ready_control (void)
 	}
 }
 
+void clear_buffer(void)
+{
+	for (uint8_t i = 0; i > msg_line; i++)
+	{
+		buffer[i] = '\0';
+	}
+}
 
 /* USER CODE END 0 */
 
@@ -141,7 +149,7 @@ int main(void)
 
   /* USER CODE END 2 */
 
-  /* Infinite loop *
+  /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
@@ -149,29 +157,40 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  if (rx_msg_ready == 1U)
+	  char terminal[msg_line];
+
+	  if (rx_msg_ready == 1)
 	  {
-		  rx_buffer_writer(rx_msg_byte);
+		  byte_writer();
 
-		  send_ready_control();
+		  send_check();
 
-		  const uint8_t now = rx_buffer[rx_index];
-
-		  uart_send((char* )now);
+		  rx_msg_ready = 0;
 
 		  if (msg_ready_send == 1U)
 		  {
-			  HAL_UART_Transmit(&huart2, &rx_buffer[0], rx_index, HAL_MAX_DELAY);
+			  HAL_UART_Transmit(&huart2, &buffer[0], msg_index+1U, HAL_MAX_DELAY);
+
+			  /*for(uint8_t i = 0; i < msg_line; i++)
+			  {
+				  int uzunluk = sprintf(terminal, "Karakter: %c -> ASCII: %d\r\n", buffer[i], buffer[i]);
+
+				  HAL_UART_Transmit(&huart2, (uint8_t*)terminal, uzunluk, HAL_MAX_DELAY);
+			  }*/
+
+			  clear_buffer();
+
 
 			  msg_ready_send = 0U;
-			  rx_index = 0U;
+			  msg_index = 0U;
 		  }
 
-		  HAL_UART_Receive_IT(&huart2, &rx_msg_byte, 1U);
-
-		  rx_msg_ready = 0U;
-
+		  if (HAL_UART_Receive_IT(&huart2, &rx_msg_byte, 1U))
+		  {
+			  Error_Handler();
+		  }
 	  }
+
   }
   /* USER CODE END 3 */
 }
@@ -224,7 +243,7 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void HAL_UART_RxCpltCollback(UART_HandleTypeDef *huart)
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if (huart->Instance == USART2)
 	{
