@@ -97,7 +97,7 @@ void send_check(void)
 
 void clear_buffer(void)
 {
-	for (uint8_t i = 0; i > msg_line; i++)
+	for (uint8_t i = 0; i < msg_line; i++)
 	{
 		buffer[i] = '\0';
 	}
@@ -105,7 +105,7 @@ void clear_buffer(void)
 
 bool overflow_check(void)
 {
-	if (msg_index > 32U)
+	if (msg_index >= 32U)
 	{
 		return true;
 	}
@@ -225,7 +225,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  while (rx_msg_ready == true)
+	  if (rx_msg_ready == true)
 	  {
 		  overflow = overflow_check();
 
