@@ -24,8 +24,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -51,8 +52,8 @@
 /* USER CODE BEGIN PV */
 
 static uint8_t rx_msg_byte;
-static uint8_t rx_msg_ready;
-static uint8_t msg_ready_send = 0U;
+static bool rx_msg_ready = false;
+static bool msg_ready_send = false;
 static uint8_t msg_index = 0U;
 static uint8_t buffer[msg_line];
 
@@ -83,15 +84,14 @@ void send_check(void)
 {
 	if(rx_msg_byte == '\r')
 	{
-		msg_ready_send = 1U;
+		msg_ready_send = true;
 
-		buffer[msg_index] = '\n';
 
 	}
 
 	else
 	{
-		msg_ready_send = 0U;
+		msg_ready_send = false;
 	}
 }
 
@@ -102,6 +102,72 @@ void clear_buffer(void)
 		buffer[i] = '\0';
 	}
 }
+
+bool overflow_check(void)
+{
+	if (msg_index > 32U)
+	{
+		return true;
+	}
+
+	else
+	{
+		return false;
+	}
+}
+
+void overflow_send(void)
+{
+	char overflow_msg[] = "RX_OVERFLOW!!\r\n";
+	uart_send(overflow_msg);
+}
+
+void no_overflow(void)
+{
+
+	char mesaj_kutusu[10];
+	char finish[] = "\n\r";
+
+	send_check();
+
+	if (msg_ready_send == true)
+	{
+
+		HAL_UART_Transmit(&huart2, &buffer[0], msg_index, HAL_MAX_DELAY);
+
+		uart_send(finish);
+
+		int uzunluk = sprintf(mesaj_kutusu, "%u\r\n", msg_index);
+
+		HAL_UART_Transmit(&huart2, (uint8_t*)mesaj_kutusu, uzunluk, HAL_MAX_DELAY);
+		clear_buffer();
+
+		msg_ready_send = false;
+		msg_index = 0U;
+	}
+
+	else
+	{
+		byte_writer();
+	}
+}
+
+
+void yes_overflow(void)
+{
+	send_check();
+
+	if (msg_ready_send == true)
+	{
+		overflow_send();
+
+		clear_buffer();
+
+		msg_ready_send = false;
+		msg_index = 0U;
+	}
+}
+
 
 /* USER CODE END 0 */
 
@@ -147,6 +213,8 @@ int main(void)
 	  Error_Handler();
   }
 
+  bool overflow = false;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -157,38 +225,26 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  char terminal[msg_line];
-
-	  if (rx_msg_ready == 1)
+	  while (rx_msg_ready == true)
 	  {
-		  byte_writer();
+		  overflow = overflow_check();
 
-		  send_check();
-
-		  rx_msg_ready = 0;
-
-		  if (msg_ready_send == 1U)
+		  if (overflow == false)
 		  {
-			  HAL_UART_Transmit(&huart2, &buffer[0], msg_index+1U, HAL_MAX_DELAY);
-
-			  /*for(uint8_t i = 0; i < msg_line; i++)
-			  {
-				  int uzunluk = sprintf(terminal, "Karakter: %c -> ASCII: %d\r\n", buffer[i], buffer[i]);
-
-				  HAL_UART_Transmit(&huart2, (uint8_t*)terminal, uzunluk, HAL_MAX_DELAY);
-			  }*/
-
-			  clear_buffer();
-
-
-			  msg_ready_send = 0U;
-			  msg_index = 0U;
+			  no_overflow();
 		  }
 
-		  if (HAL_UART_Receive_IT(&huart2, &rx_msg_byte, 1U))
+		  else
 		  {
-			  Error_Handler();
+			  yes_overflow();
 		  }
+
+		rx_msg_ready = false;
+
+		if (HAL_UART_Receive_IT(&huart2, &rx_msg_byte, 1U))
+		{
+			Error_Handler();
+		}
 	  }
 
   }
@@ -247,7 +303,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if (huart->Instance == USART2)
 	{
-		rx_msg_ready = 1U;
+		rx_msg_ready = true;
 	}
 }
 
