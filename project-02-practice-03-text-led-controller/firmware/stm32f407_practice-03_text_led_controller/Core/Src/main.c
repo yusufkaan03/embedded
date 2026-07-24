@@ -135,13 +135,6 @@ bool enter_check(void)
 	}
 }
 
-void clear_buffer(void)
-{
-	for (uint8_t i = 0; i >= BUFFER_SIZE; i++)
-	{
-		buffer[i] = '\0';
-	}
-}
 void msg_writer(void)
 {
 	bool enter = true;
@@ -358,7 +351,7 @@ void cleaning(void)
 	led = LED_WAIT;
 	rx_byte_ready = false;
 
-	for (uint8_t i = 0; i <= BUFFER_SIZE; i++)
+	for (uint8_t i = 0; i < BUFFER_SIZE; i++)
 	{
 		buffer[i] = '\0';
 	}
