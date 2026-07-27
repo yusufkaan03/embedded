@@ -33,13 +33,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum
-{
-	NORMAL_MODE,
-	PING_MODE,
-	SET_LED_MODE
-}Mode_t;
-
 
 /* USER CODE END PTD */
 
@@ -62,13 +55,11 @@ typedef enum
 static const uint8_t ping_packet[] = {0xAAU, 0x01U, 0x00U, 0x01U};
 static const uint8_t set_led_off_packet[] = {0xAAU, 0x03U, 0x01U, 0x00U, 0x02U};
 static const uint8_t set_led_on_packet[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
+static const uint8_t invalid_ping_packet[] = {0xAAU, 0x01U, 0x00U, 0x00U};
 static uint8_t command = 0U;
 static uint8_t length = 0U;
 static uint8_t payload[PAYLOAD_SIZE];
-static uint8_t sum = 0U;
-
-static Mode_t mode = NORMAL_MODE;
-
+static uint8_t received_checksum = 0U;
 
 /* USER CODE END PV */
 
@@ -86,11 +77,11 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void clear(void)
+void reset_test_state(void)
 {
 	command = 0U;
 	length = 0U;
-	sum = 0U;
+	received_checksum = 0U;
 
 	for(uint8_t i = 0; i < PAYLOAD_SIZE; i++)
 	{
@@ -112,7 +103,7 @@ uint8_t checksum_calculate(void)
 	return checksum;
 }
 
-void payload_finder(uint8_t array[])
+void payload_finder(const uint8_t array[])
 {
 	for (uint8_t i = 0; i<length; i++)
 	{
@@ -121,89 +112,34 @@ void payload_finder(uint8_t array[])
 
 }
 
-void ping_packet_test(void)
+bool packet_checksum(const uint8_t array[])
 {
+	bool result = false;
 	uint8_t checksum = 0U;
-	command = ping_packet[1];
-	length = ping_packet[2];
-	sum = ping_packet[3+length];
+	command = array[1];
+	length = array[2];
+	received_checksum = array[3+length];
 
 	if (length > 0)
 	{
-		payload_finder(ping_packet);
+		payload_finder(array);
 	}
 
 	checksum = checksum_calculate();
 
-	if (checksum == sum)
+	if (received_checksum == checksum)
 	{
-		uart_send("PING_CHECKSUM:PASS\n\r");
+		result = true;
 	}
 
 	else
 	{
-		uart_send("PING_CHECKSUM:ERROR\n\r");
+		result = false;
 	}
 
-	clear();
+	reset_test_state();
 
-}
-
-
-void set_led_on_packet_test(void)
-{
-	uint8_t checksum = 0U;
-	command = set_led_on_packet[1];
-	length = set_led_on_packet[2];
-	sum = set_led_on_packet[3+length];
-
-	if (length > 0)
-	{
-		payload_finder(set_led_on_packet);
-	}
-
-	checksum = checksum_calculate();
-
-	if (sum == checksum)
-	{
-		uart_send("SET_LED_ON_CHECKSUM:PASS\n\r");
-	}
-
-	else
-	{
-		uart_send("SET_LED_ON_CHECKSUM:ERROR\n\r");
-	}
-
-	clear();
-}
-
-void set_led_off_packet_test(void)
-{
-	uint8_t checksum = 0U;
-	command = set_led_off_packet[1];
-	length = set_led_off_packet[2];
-	sum = set_led_off_packet[3+length];
-
-	if (length > 0)
-	{
-		payload_finder(set_led_off_packet);
-	}
-
-	checksum = checksum_calculate();
-
-
-	if (sum == checksum)
-	{
-		uart_send("SET_LED_OFF_CHECKSUM:PASS\n\r");
-	}
-
-	else
-	{
-		uart_send("SET_LED_OFF_CHECKSUM:ERROR\n\r");
-	}
-
-	clear();
-
+	return result;
 }
 
 /* USER CODE END 0 */
@@ -245,9 +181,41 @@ int main(void)
   uart_send(boot_msg_head);
   uart_send(boot_msg);
 
-  ping_packet_test();
-  set_led_on_packet_test();
-  set_led_off_packet_test();
+  if (packet_checksum(ping_packet))
+  {
+	  uart_send("PING_CHECKSUM:PASS\r\n");
+  }
+  else
+  {
+	  uart_send("PING_CHECKSUM:ERROR\r\n");
+  }
+
+  if (packet_checksum(set_led_on_packet))
+  {
+	  uart_send("SET_LED_ON_CHECKSUM:PASS\r\n");
+  }
+  else
+  {
+	  uart_send("SET_LED_ON_CHECKSUM:ERROR\r\n");
+  }
+
+  if(packet_checksum(set_led_off_packet))
+  {
+	  uart_send("SET_LED_OFF_CHECKSUM:PASS\r\n");
+  }
+  else
+  {
+	  uart_send("SET_LED_OFF_CHECKSUM:ERROR\r\n");
+  }
+
+  if (packet_checksum(invalid_ping_packet) == false)
+  {
+	  uart_send("INVALID_PING_CHECKSUM:PASS\r\n");
+  }
+  else
+  {
+	  uart_send("INVALID_PING_CHECKSUM:ERROR\r\n");
+  }
 
   /* USER CODE END 2 */
 
