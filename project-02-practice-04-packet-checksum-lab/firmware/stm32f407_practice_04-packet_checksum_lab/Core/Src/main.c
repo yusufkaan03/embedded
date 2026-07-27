@@ -46,6 +46,8 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define PAYLOAD_SIZE 3U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,7 +64,7 @@ static const uint8_t set_led_off_packet[] = {0xAAU, 0x03U, 0x01U, 0x00U, 0x02U};
 static const uint8_t set_led_on_packet[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
 static uint8_t command = 0U;
 static uint8_t length = 0U;
-static uint8_t payload[3];
+static uint8_t payload[PAYLOAD_SIZE];
 static uint8_t sum = 0U;
 
 static Mode_t mode = NORMAL_MODE;
@@ -84,13 +86,54 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
+void clear(void)
+{
+	command = 0U;
+	length = 0U;
+	sum = 0U;
+
+	for(uint8_t i = 0; i < PAYLOAD_SIZE; i++)
+	{
+		payload[i] = 0U;
+	}
+}
+
+uint8_t checksum_calculate(void)
+{
+	uint8_t checksum = 0U;
+
+	checksum = command ^ length;
+
+	for (uint8_t i = 0; i < length; i++)
+	{
+		checksum = checksum ^ payload[i];
+	}
+
+	return checksum;
+}
+
+void payload_finder(uint8_t array[])
+{
+	for (uint8_t i = 0; i<length; i++)
+	{
+		payload[i] = array[i+3];
+	}
+
+}
+
 void ping_packet_test(void)
 {
+	uint8_t checksum = 0U;
 	command = ping_packet[1];
 	length = ping_packet[2];
-	sum = ping_packet[3];
+	sum = ping_packet[3+length];
 
-	uint8_t checksum = command ^ length;
+	if (length > 0)
+	{
+		payload_finder(ping_packet);
+	}
+
+	checksum = checksum_calculate();
 
 	if (checksum == sum)
 	{
@@ -102,25 +145,24 @@ void ping_packet_test(void)
 		uart_send("PING_CHECKSUM:ERROR\n\r");
 	}
 
+	clear();
+
 }
+
 
 void set_led_on_packet_test(void)
 {
+	uint8_t checksum = 0U;
 	command = set_led_on_packet[1];
 	length = set_led_on_packet[2];
-	sum = set_led_on_packet[4];
+	sum = set_led_on_packet[3+length];
 
-	for (uint8_t i = 0; i<length; i++)
+	if (length > 0)
 	{
-		payload[i] = set_led_on_packet[i+3];
+		payload_finder(set_led_on_packet);
 	}
 
-	uint8_t checksum = command ^ length;
-
-	for (uint8_t i = 0; i<length; i++)
-	{
-		checksum = checksum ^ payload[i];
-	}
+	checksum = checksum_calculate();
 
 	if (sum == checksum)
 	{
@@ -132,25 +174,23 @@ void set_led_on_packet_test(void)
 		uart_send("SET_LED_ON_CHECKSUM:ERROR\n\r");
 	}
 
+	clear();
 }
 
 void set_led_off_packet_test(void)
 {
+	uint8_t checksum = 0U;
 	command = set_led_off_packet[1];
 	length = set_led_off_packet[2];
-	sum = set_led_off_packet[4];
+	sum = set_led_off_packet[3+length];
 
-	for (uint8_t i = 0; i<length; i++)
+	if (length > 0)
 	{
-		payload[i] = set_led_off_packet[i+3];
+		payload_finder(set_led_off_packet);
 	}
 
-	uint8_t checksum = command ^ length;
+	checksum = checksum_calculate();
 
-	for (uint8_t i = 0; i<length; i++)
-	{
-		checksum = checksum ^ payload[i];
-	}
 
 	if (sum == checksum)
 	{
@@ -161,6 +201,8 @@ void set_led_off_packet_test(void)
 	{
 		uart_send("SET_LED_OFF_CHECKSUM:ERROR\n\r");
 	}
+
+	clear();
 
 }
 
