@@ -33,6 +33,13 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum
+{
+	NORMAL_MODE,
+	PING_MODE,
+	SET_LED_MODE
+}Mode_t;
+
 
 /* USER CODE END PTD */
 
@@ -50,8 +57,16 @@
 
 /* USER CODE BEGIN PV */
 
-static uint8_t msg_byte = 0U;
-static bool msg_byte_ready = false;
+static const uint8_t ping_packet[] = {0xAAU, 0x01U, 0x00U, 0x01U};
+static const uint8_t set_led_off_packet[] = {0xAAU, 0x03U, 0x01U, 0x00U, 0x02U};
+static const uint8_t set_led_on_packet[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
+static uint8_t command = 0U;
+static uint8_t length = 0U;
+static uint8_t payload[3];
+static uint8_t sum = 0U;
+
+static Mode_t mode = NORMAL_MODE;
+
 
 /* USER CODE END PV */
 
@@ -69,7 +84,85 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
+void ping_packet_test(void)
+{
+	command = ping_packet[1];
+	length = ping_packet[2];
+	sum = ping_packet[3];
 
+	uint8_t checksum = command ^ length;
+
+	if (checksum == sum)
+	{
+		uart_send("PING_CHECKSUM:PASS\n\r");
+	}
+
+	else
+	{
+		uart_send("PING_CHECKSUM:ERROR\n\r");
+	}
+
+}
+
+void set_led_on_packet_test(void)
+{
+	command = set_led_on_packet[1];
+	length = set_led_on_packet[2];
+	sum = set_led_on_packet[4];
+
+	for (uint8_t i = 0; i<length; i++)
+	{
+		payload[i] = set_led_on_packet[i+3];
+	}
+
+	uint8_t checksum = command ^ length;
+
+	for (uint8_t i = 0; i<length; i++)
+	{
+		checksum = checksum ^ payload[i];
+	}
+
+	if (sum == checksum)
+	{
+		uart_send("SET_LED_ON_CHECKSUM:PASS\n\r");
+	}
+
+	else
+	{
+		uart_send("SET_LED_ON_CHECKSUM:ERROR\n\r");
+	}
+
+}
+
+void set_led_off_packet_test(void)
+{
+	command = set_led_off_packet[1];
+	length = set_led_off_packet[2];
+	sum = set_led_off_packet[4];
+
+	for (uint8_t i = 0; i<length; i++)
+	{
+		payload[i] = set_led_off_packet[i+3];
+	}
+
+	uint8_t checksum = command ^ length;
+
+	for (uint8_t i = 0; i<length; i++)
+	{
+		checksum = checksum ^ payload[i];
+	}
+
+	if (sum == checksum)
+	{
+		uart_send("SET_LED_OFF_CHECKSUM:PASS\n\r");
+	}
+
+	else
+	{
+		uart_send("SET_LED_OFF_CHECKSUM:ERROR\n\r");
+	}
+
+}
 
 /* USER CODE END 0 */
 
@@ -110,10 +203,9 @@ int main(void)
   uart_send(boot_msg_head);
   uart_send(boot_msg);
 
-  if(HAL_UART_Receive_IT(&huart2, &msg_byte, 1U) != HAL_OK)
-  {
-	  Error_Handler();
-  }
+  ping_packet_test();
+  set_led_on_packet_test();
+  set_led_off_packet_test();
 
   /* USER CODE END 2 */
 
@@ -123,7 +215,10 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
+
     /* USER CODE BEGIN 3 */
+
+
   }
   /* USER CODE END 3 */
 }
@@ -175,16 +270,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-
-	if (huart->Instance == USART2)
-	{
-		msg_byte_ready = true;
-	}
-
-}
 
 /* USER CODE END 4 */
 
