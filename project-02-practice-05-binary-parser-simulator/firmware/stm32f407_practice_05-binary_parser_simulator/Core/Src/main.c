@@ -47,6 +47,8 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define PAYLOAD_SIZE 3U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,9 +61,12 @@ typedef enum
 /* USER CODE BEGIN PV */
 
 Parser_t parser_state = PARSER_WAIT_START;
-static const uint8_t test_data[] = {0x55U, 0x10U, 0xAAU};
+static const uint8_t test_data[] = {0xAAU, 0x03U, 0x01U, 0x00U};
 
-static uint8_t data_index = 0U;
+static uint8_t command = 0U;
+static uint8_t length = 0U;
+static uint8_t payload[PAYLOAD_SIZE];
+static uint8_t payload_index = 0U;
 
 /* USER CODE END PV */
 
@@ -83,63 +88,29 @@ void uart_send_int(uint8_t number)
 {
 	char buffer[12];
 
-	int len = sprintf(buffer, "%d\r\n", number);
+	int len = sprintf(buffer, "%d", number);
 
 	HAL_UART_Transmit(&huart2, (uint8_t* )buffer, len, HAL_MAX_DELAY);
 }
 
-int8_t start_finder(void)
+void payload_recorder(uint8_t byte)
 {
-	uint8_t length = sizeof(test_data);
-
-	for (uint8_t i = 0; i < length; i++)
+	if (length == 0x00)
 	{
-		if (test_data[i] == 1U)
+		for (uint8_t i = 0; i < PAYLOAD_SIZE; i++)
 		{
-			return i;
+			payload[i] = 0x00;
 		}
 	}
 
-	return -1;
-}
-
-void parser_wait(void)
-{
-
-	switch(parser_state)
+	else
 	{
-	case PARSER_WAIT_START:
-
-		data_index = start_finder();
-
-		if (data_index >= 0)
-		{
-			uart_send("PARSER_STAGE_1:PASS\r\n");
-			uart_send("INDEX:");
-			uart_send_int(data_index);
-
-			parser_state = PARSER_READ_COMMAND;
-
-		}
-
-		else
-		{
-			uart_send("PARSER_STAGE_1:FAIL\r\n");
-			uart_send("INDEX:");
-			uart_send_int(data_index);
-		}
-
-		break;
-
-	default:
-		uart_send("ERROR\r\n");
-		uart_send_int(data_index);
-		break;
-
+		payload[payload_index] =  byte;
+		payload_index++;
 	}
 }
 
-void parser_proces_byte(uint8_t byte)
+void parser_process_byte(uint8_t byte)
 {
 	switch (parser_state)
 	{
@@ -150,6 +121,45 @@ void parser_proces_byte(uint8_t byte)
 		}
 		break;
 
+	case PARSER_READ_COMMAND:
+		command = byte;
+		parser_state = PARSER_READ_LENGTH;
+		break;
+
+	case PARSER_READ_LENGTH:
+		length = byte;
+		if(length == 0x00)
+		{
+			parser_state = PARSER_READ_PAYLOAD;
+		}
+		else
+		{
+		parser_state = PARSER_READ_PAYLOAD;
+		break;
+		}
+
+
+	case PARSER_READ_PAYLOAD:
+		if (PAYLOAD_SIZE >= length)
+		{
+			if (length == 0x00)
+			{
+				payload_recorder(length);
+				parser_state = PARSER_READ_CHECKSUM;
+			}
+
+			if (payload_index < length)
+			{
+				payload_recorder(byte);
+
+				if(payload_index >= length)
+				{
+					parser_state = PARSER_READ_CHECKSUM;
+				}
+			}
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -157,21 +167,102 @@ void parser_proces_byte(uint8_t byte)
 
 void process(void)
 {
+	parser_state = PARSER_WAIT_START;
+	command = 0U;
+	length = 0U;
+	payload_index = 0U;
+
+	bool state1 = false;
+	bool state2 = false;
+	bool state3 = false;
+	bool state4 = false;
+
 	for(uint8_t i = 0; i < sizeof(test_data); i++)
 	{
-		parser_proces_byte(test_data[i]);
+		parser_process_byte(test_data[i]);
+
+		if (parser_state == PARSER_READ_COMMAND && state1 == false)
+		{
+			state1 = true;
+		}
+
+		if (parser_state == PARSER_READ_LENGTH && state1 == true)
+		{
+			state2 = true;
+		}
+
+		if (parser_state == PARSER_READ_CHECKSUM && state2 == true)
+		{
+			state3 = true;
+		}
+
+		else if (parser_state == PARSER_READ_PAYLOAD && state2 == true)
+		{
+			state3 = true;
+		}
+
+		if (parser_state == PARSER_READ_CHECKSUM && state3 == true)
+		{
+			state4 = true;
+		}
 	}
 
-	if (parser_state == PARSER_READ_COMMAND)
+	if (state1)
 	{
-		uart_send("PASER_STAGE_1:PASS\r\n");
+		uart_send("PARSER_STATE_1:PASS\r\n");
 	}
-
 	else
 	{
-		uart_send("PASER_STAGE_1:FAIL\r\n");
+		uart_send("PARSER_STATE_1:FAIL\r\n");
+	}
+
+	if (state2)
+	{
+		uart_send("PARSER_STATE_2:PASS VALUE:");
+		uart_send_int(command);
+		uart_send("\r\n");
+	}
+	else
+	{
+		uart_send("PARSER_STATE_2:FAIL\r\n");
+	}
+
+	if (state3)
+	{
+		uart_send("PARSER_STATE_3:PASS VALUE:");
+		uart_send_int(length);
+		uart_send("\r\n");
+	}
+	else
+	{
+		uart_send("PARSER_STATE_3:FAIL\r\n");
+	}
+
+	if (state4)
+	{
+		uart_send("PARSER_STATE_4:PASS VALUE:");
+		if (length == 0x00)
+		{
+			uart_send("NO_PAYLOAD");
+		}
+		else
+		{
+			for(uint8_t i = 0; i < length; i++)
+			{
+				uart_send("[");
+				uart_send_int(i);
+				uart_send("]:");
+				uart_send_int(payload[i]);
+				uart_send(" ");
+			}
+		}
+	}
+	else
+	{
+		uart_send("PARSER_STATE_4:FAIL");
 	}
 }
+
 
 /* USER CODE END 0 */
 
