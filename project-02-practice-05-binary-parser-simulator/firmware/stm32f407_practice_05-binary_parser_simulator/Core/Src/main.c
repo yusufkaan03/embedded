@@ -62,13 +62,14 @@ typedef enum
 /* USER CODE BEGIN PV */
 
 Parser_t parser_state = PARSER_WAIT_START;
-static const uint8_t test_data[] = {0xAAU, 0x03U, 0x03U, 0x00U, 0x01U, 0x02U, 0x05U};
+static const uint8_t test_data[] = {0xAAU, 0x03U, 0x00U, 0x03U};
 
 static uint8_t command = 0U;
 static uint8_t length = 0U;
 static uint8_t payload[PAYLOAD_SIZE];
 static uint8_t payload_index = 0U;
 static uint8_t checksum_read = 0U;
+static bool checksum_is_true = false;
 
 /* USER CODE END PV */
 
@@ -154,6 +155,31 @@ void parser_process_byte(uint8_t byte)
 	}
 }
 
+bool calculate_checksum(void)
+{
+	uint8_t sum = 0U;
+
+	sum = command ^ length;
+
+	if (length > 0)
+	{
+		for(uint8_t i = 0; i < length; i++)
+		{
+			sum = sum ^ payload[i];
+		}
+	}
+
+	if(sum == checksum_read)
+	{
+		return true;
+	}
+
+	else
+	{
+		return false;
+	}
+}
+
 void process(void)
 {
 	parser_state = PARSER_WAIT_START;
@@ -161,12 +187,14 @@ void process(void)
 	length = 0U;
 	payload_index = 0U;
 	checksum_read = 0U;
+	checksum_is_true = false;
 
 	bool state1 = false;
 	bool state2 = false;
 	bool state3 = false;
 	bool state4 = false;
 	bool state5 = false;
+	bool state6 = false;
 
 	for(uint8_t i = 0; i < sizeof(test_data); i++)
 	{
@@ -201,6 +229,12 @@ void process(void)
 		{
 			state5 = true;
 		}
+	}
+
+	if (parser_state == PARSER_CALCULATE_CHECKSUM && state5 == true)
+	{
+		checksum_is_true = calculate_checksum();
+		state6 = true;
 	}
 
 	if (state1)
@@ -265,6 +299,24 @@ void process(void)
 		uart_send("PARSER_STATE_5:PASS VALUE:");
 		uart_send_int(checksum_read);
 		uart_send("\r\n");
+	}
+
+	if(state6)
+	{
+		uart_send("PARSER_STATE_6:PASS VALUE:");
+
+		if(checksum_is_true)
+		{
+			uart_send("TRUE");
+		}
+		else
+		{
+			uart_send("FALSE");
+		}
+	}
+	else
+	{
+		uart_send("PARSER_STATE_6:FAIL");
 	}
 }
 
