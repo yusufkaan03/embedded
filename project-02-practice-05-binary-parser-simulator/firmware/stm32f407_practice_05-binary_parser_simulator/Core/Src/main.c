@@ -61,7 +61,7 @@ typedef enum
 /* USER CODE BEGIN PV */
 
 Parser_t parser_state = PARSER_WAIT_START;
-static const uint8_t test_data[] = {0xAAU, 0x03U, 0x01U, 0x00U};
+static const uint8_t test_data[] = {0xAAU, 0x03U, 0x00U};
 
 static uint8_t command = 0U;
 static uint8_t length = 0U;
@@ -95,19 +95,8 @@ void uart_send_int(uint8_t number)
 
 void payload_recorder(uint8_t byte)
 {
-	if (length == 0x00)
-	{
-		for (uint8_t i = 0; i < PAYLOAD_SIZE; i++)
-		{
-			payload[i] = 0x00;
-		}
-	}
-
-	else
-	{
 		payload[payload_index] =  byte;
 		payload_index++;
-	}
 }
 
 void parser_process_byte(uint8_t byte)
@@ -130,24 +119,17 @@ void parser_process_byte(uint8_t byte)
 		length = byte;
 		if(length == 0x00)
 		{
-			parser_state = PARSER_READ_PAYLOAD;
+			parser_state = PARSER_READ_CHECKSUM;
 		}
 		else
 		{
 		parser_state = PARSER_READ_PAYLOAD;
-		break;
 		}
-
+		break;
 
 	case PARSER_READ_PAYLOAD:
 		if (PAYLOAD_SIZE >= length)
 		{
-			if (length == 0x00)
-			{
-				payload_recorder(length);
-				parser_state = PARSER_READ_CHECKSUM;
-			}
-
 			if (payload_index < length)
 			{
 				payload_recorder(byte);
