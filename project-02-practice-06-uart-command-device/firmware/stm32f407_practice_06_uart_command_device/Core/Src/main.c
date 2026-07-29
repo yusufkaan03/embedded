@@ -33,10 +33,23 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef enum
+{
+	PARSER_WAIT_START,
+	PARSER_READ_COMMAND,
+	PARSER_READ_LENGTH,
+	PARSER_READ_PAYLOAD,
+	PARSER_READ_CHECKSUM,
+	PARSER_CALC_CHECKSUM,
+	PARSER_ERROR
+}Parser_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define PAYLOAD_SIZE 32
 
 /* USER CODE END PD */
 
@@ -52,6 +65,13 @@
 static uint8_t rx_byte = 0U;
 static bool rx_byte_ready = false;
 
+static uint8_t test[] = {0xAAU};
+static uint8_t rx_command = 0U;
+static uint8_t rx_length = 0U;
+static uint8_t rx_payload[PAYLOAD_SIZE];
+static uint8_t rx_checsum = 0;
+static Parser_t parser_state = PARSER_WAIT_START;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,6 +86,19 @@ void SystemClock_Config(void);
 void uart_send(char* text)
 {
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
+}
+
+void compare(void)
+{
+	if (rx_byte == 0xAAU)
+	{
+		uart_send("RX:AA\r\n");
+	}
+
+	else
+	{
+		uart_send("RX:UNKONWN\r\n");
+	}
 }
 
 /* USER CODE END 0 */
@@ -112,6 +145,8 @@ int main(void)
 	  Error_Handler();
   }
 
+  HAL_UART_Transmit(&huart2, &test[1], 1U, HAL_MAX_DELAY);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -121,7 +156,7 @@ int main(void)
     /* USER CODE END WHILE */
 	  if (rx_byte_ready == true)
 	  {
-		  HAL_UART_Transmit(&huart2, &rx_byte, 1U, HAL_MAX_DELAY);
+		  compare();
 
 		  rx_byte_ready = false;
 
