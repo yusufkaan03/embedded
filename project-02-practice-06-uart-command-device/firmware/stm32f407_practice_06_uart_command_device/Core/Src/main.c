@@ -39,10 +39,17 @@ typedef enum
 	PARSER_READ_COMMAND,
 	PARSER_READ_LENGTH,
 	PARSER_READ_PAYLOAD,
-	PARSER_READ_CHECKSUM,
-	PARSER_CALC_CHECKSUM,
+	PARSER_READ_CALC_CHECKSUM,
+	PARSER_HANDLER,
 	PARSER_ERROR
 }Parser_t;
+
+typedef enum
+{
+	NO_ERROR,
+	LENGTH_ERROR,
+	CHECSUM_ERROR
+}ErrorMode_t;
 
 /* USER CODE END PTD */
 
@@ -65,12 +72,14 @@ typedef enum
 static uint8_t rx_byte = 0U;
 static bool rx_byte_ready = false;
 
-static uint8_t test[] = {0xAAU};
 static uint8_t rx_command = 0U;
 static uint8_t rx_length = 0U;
 static uint8_t rx_payload[PAYLOAD_SIZE];
-static uint8_t rx_checsum = 0;
+static uint8_t payload_index = 0U;
+static uint8_t rx_checksum = 0U;
+
 static Parser_t parser_state = PARSER_WAIT_START;
+static ErrorMode_t error_state = NO_ERROR;
 
 /* USER CODE END PV */
 
@@ -88,19 +97,166 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void compare(void)
+void uart_send_byte(uint8_t byte)
 {
-	if (rx_byte == 0xAAU)
+	HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+}
+
+void payload_recoder(uint8_t byte)
+{
+	if (payload_index < PAYLOAD_SIZE)
 	{
-		uart_send("RX:AA\r\n");
+		rx_payload[payload_index] = byte;
+		payload_index++;
+	}
+}
+bool calc_checksum(void)
+{
+	uint8_t sum = 0U;
+
+	sum = rx_command ^ rx_length;
+
+	for(uint8_t i = 0; i < rx_length; i++)
+	{
+		sum = sum ^ rx_payload[i];
 	}
 
+	if (sum == rx_checksum)
+	{
+		return true;
+	}
 	else
 	{
-		uart_send("RX:UNKONWN\r\n");
+		return false;
 	}
 }
 
+void SuccessHandler(void)
+{
+	uart_send("COMMAND:");
+	uart_send_byte(rx_command);
+	uart_send("\r\nLENGTH:");
+	uart_send_byte(rx_length);
+	uart_send("\r\nPAYLOAD:");
+
+	if (rx_length == 0x00U)
+	{
+		uart_send("NO_PAYLOAD!");
+	}
+	else
+	{
+		for (uint8_t i = 0U; i < rx_length; i++)
+		{
+			char buffer[12];
+
+			uint8_t len = sprintf(buffer, "[%d] ", rx_payload[i]);
+
+			HAL_UART_Transmit(&huart2, (uint8_t* )buffer, len, HAL_MAX_DELAY);
+		}
+	}
+
+	uart_send("\r\nCHECKSUM:");
+	uart_send_byte(rx_checksum);
+	uart_send("\r\nRESULT:TRUE");
+
+}
+
+void FailHandler(void)
+{
+
+}
+
+bool WorkflowManager(void)
+{
+	uint8_t checksum_is_true = false;
+
+	checksum_is_true = calc_checksum();
+
+	if (checksum_is_true == false)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = CHECSUM_ERROR;
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+
+}
+
+void parserDataPipeline(uint8_t byte)
+{
+	switch(parser_state)
+		{
+		case PARSER_WAIT_START:
+			if (byte == 0xAAU)
+			{
+				parser_state = PARSER_READ_COMMAND;
+				uart_send("\r\nPARSER_READ_COMMAND:");
+			}
+			break;
+
+		case PARSER_READ_COMMAND:
+			rx_command = byte;
+			parser_state = PARSER_READ_LENGTH;
+			uart_send_byte(rx_command);
+			uart_send("\r\nPARSER_READ_LENGTH:");
+			break;
+
+		case PARSER_READ_LENGTH:
+			rx_length = byte;
+			uart_send_byte(rx_byte);
+			if (rx_length == 0x00U)
+			{
+				parser_state = PARSER_READ_CALC_CHECKSUM;
+				uart_send("\r\nPARSER_READ_CALC_CHECKSUM:");
+			}
+			else
+			{
+				parser_state = PARSER_READ_PAYLOAD;
+				uart_send("\r\nPARSER_READ_PAYLOAD:");
+			}
+			break;
+
+		case PARSER_READ_PAYLOAD:
+			if (payload_index < rx_length)
+			{
+				payload_recoder(byte);
+				uart_send("\r\nPAYLOAD_WRITE:");
+				if(payload_index >= rx_length)
+				{
+					parser_state = PARSER_READ_CALC_CHECKSUM;
+					uart_send("\r\nPARSER_READ_CALC_CHECKSUM:");
+				}
+			}
+			break;
+
+		case PARSER_READ_CALC_CHECKSUM:
+			rx_checksum = byte;
+			parser_state = PARSER_HANDLER;
+			uart_send("\r\nPARSER_HANDLER\r\n");
+			break;
+
+		default:
+			break;
+		}
+}
+
+void resetState(void)
+{
+	rx_command = 0U;
+	rx_length = 0U;
+	payload_index = 0U;
+	for (uint8_t i = 0; i < PAYLOAD_SIZE; i++)
+	{
+		rx_payload[i] = '\0';
+	}
+	rx_checksum = 0U;
+
+	parser_state = PARSER_WAIT_START;
+	error_state = NO_ERROR;
+}
 /* USER CODE END 0 */
 
 /**
@@ -145,7 +301,8 @@ int main(void)
 	  Error_Handler();
   }
 
-  HAL_UART_Transmit(&huart2, &test[1], 1U, HAL_MAX_DELAY);
+bool success = false;
+
 
   /* USER CODE END 2 */
 
@@ -156,7 +313,29 @@ int main(void)
     /* USER CODE END WHILE */
 	  if (rx_byte_ready == true)
 	  {
-		  compare();
+
+		  parserDataPipeline(rx_byte);
+
+		  if(parser_state == PARSER_HANDLER)
+		  {
+			  uart_send("WORKFLOW_IF\r\n");
+			  success = WorkflowManager();
+			  uart_send("WORKFOLW_END\r\n");
+			  if (success == true)
+			  {
+				  uart_send("SUCCES\r\n");
+				  SuccessHandler();
+				  resetState();
+			  }
+			  else
+			  {
+				  uart_send("FAIL\r\n");
+				  FailHandler();
+				  resetState();
+			  }
+		  }
+
+		  /*HAL_UART_Transmit(&huart2, &rx_byte, 1U, HAL_MAX_DELAY);*/
 
 		  rx_byte_ready = false;
 
