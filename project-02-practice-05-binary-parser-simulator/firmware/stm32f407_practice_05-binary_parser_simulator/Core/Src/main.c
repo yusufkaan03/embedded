@@ -74,6 +74,9 @@ ErrorMode_t error_state = NO_ERROR;
 static const uint8_t test_data1[] = {0xAAU, 0x03U, 0x04U};
 static const uint8_t test_data2[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
 static const uint8_t test_data3[] = {0xAAU, 0x03U, 0x04U, 0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
+static const uint8_t test_data4[] = {0xAAU, 0x03U, 0x04U, 0x55U, 0x66U, 0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
+static const uint8_t test_data5[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U, 0xAAU, 0x03U, 0x00U, 0x03U};
+static const uint8_t test_data6[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x00U,  0xAAU, 0x03U, 0x00U, 0x03U};
 
 static uint8_t command = 0U;
 static uint8_t length = 0U;
@@ -197,7 +200,7 @@ bool calculate_checksum(void)
 	}
 }
 
-void cleaning(void)
+void cleaning_var(void)
 {
 	parser_state = PARSER_WAIT_START;
 	error_state = NO_ERROR;
@@ -231,9 +234,8 @@ void process(const uint8_t *data, uint8_t size)
 	bool state3 = false;
 	bool state4 = false;
 	bool state5 = false;
-	bool state6 = false;
 
-	bool error1 = false;
+	bool state3_control = false;
 
 	uint8_t error_stage_number = 0U;
 
@@ -247,31 +249,93 @@ void process(const uint8_t *data, uint8_t size)
 			if (parser_state == PARSER_READ_COMMAND && state1 == false)
 			{
 				state1 = true;
+				uart_send("PARSER_STATE_1:PASS VALUE:AA\r\n");
 			}
 
 			if (parser_state == PARSER_READ_LENGTH && state1 == true)
 			{
 				state2 = true;
+				uart_send("PARSER_STATE_2:PASS VALUE:");
+				uart_send_int(command);
+				uart_send("\r\n");
 			}
 
-			if (parser_state == PARSER_READ_CHECKSUM && state2 == true)
+			if (parser_state == PARSER_READ_CHECKSUM && state2 == true && state3_control == false)
 			{
 				state3 = true;
+				state3_control = true;
+				uart_send("PARSER_STATE_3:PASS VALUE:");
+				uart_send_int(length);
+				uart_send("\r\n");
 			}
 
-			else if (parser_state == PARSER_READ_PAYLOAD && state2 == true)
+			else if (parser_state == PARSER_READ_PAYLOAD && state2 == true && state3_control == false)
 			{
 				state3 = true;
+				state3_control = true;
+				uart_send("PARSER_STATE_3:PASS VALUE:");
+				uart_send_int(length);
+				uart_send("\r\n");
 			}
 
 			if (parser_state == PARSER_READ_CHECKSUM && state3 == true)
 			{
 				state4 = true;
+				uart_send("PARSER_STATE_4:PASS VALUE:");
+				if (length == 0x00)
+				{
+					uart_send("NO_PAYLOAD");
+				}
+				else
+				{
+					for(uint8_t i = 0; i < length; i++)
+					{
+						uart_send("[");
+						uart_send_int(i);
+						uart_send("]:");
+						uart_send_int(payload[i]);
+						uart_send(" ");
+					}
+				}
+
+				uart_send("\r\n");
 			}
 
 			if (parser_state == PARSER_CALCULATE_CHECKSUM && state4 == true)
 			{
 				state5 = true;
+				uart_send("PARSER_STATE_5:PASS VALUE:");
+				uart_send_int(checksum_read);
+				uart_send("\r\n");
+			}
+
+			if (parser_state == PARSER_CALCULATE_CHECKSUM && state5 == true)
+			{
+				checksum_is_true = calculate_checksum();
+				uart_send("PARSER_STATE_6:PASS VALUE:");
+
+				if(checksum_is_true)
+				{
+					uart_send("TRUE");
+				}
+				else
+				{
+					uart_send("FALSE");
+				}
+
+				uart_send("\r\n");
+
+				cleaning_var();
+
+				state1 = false;
+				state2 = false;
+				state3 = false;
+				state4 = false;
+				state5 = false;
+
+				state3_control = false;
+
+				uart_send("\r\n");
 			}
 
 		}
@@ -280,122 +344,23 @@ void process(const uint8_t *data, uint8_t size)
 		{
 			if(error_state == LENGTH_ERROR && state2 == true)
 			{
-				error1 = true;
 				error_stage_number = 1U;
 				error_msg(error_stage_number);
 				uart_send("\r\n");
 
-				cleaning();
+				cleaning_var();
 
 				state1 = false;
 				state2 = false;
 				state3 = false;
 				state4 = false;
 				state5 = false;
-				state6 = false;
 
-				error1 = false;
+				state3_control = false;
+
+				uart_send("\r\n");
 			}
 		}
-	}
-
-	if (parser_state == PARSER_CALCULATE_CHECKSUM && state5 == true)
-	{
-		checksum_is_true = calculate_checksum();
-		state6 = true;
-	}
-
-	if (state1)
-	{
-		uart_send("PARSER_STATE_1:PASS\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_1:FAIL\r\n");
-	}
-
-	if (state2)
-	{
-		uart_send("PARSER_STATE_2:PASS VALUE:");
-		uart_send_int(command);
-		uart_send("\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_2:FAIL\r\n");
-	}
-
-	if (state3)
-	{
-		uart_send("PARSER_STATE_3:PASS VALUE:");
-		uart_send_int(length);
-		uart_send("\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_3:FAIL\r\n");
-	}
-
-	if (state4)
-	{
-		uart_send("PARSER_STATE_4:PASS VALUE:");
-		if (length == 0x00)
-		{
-			uart_send("NO_PAYLOAD");
-		}
-		else
-		{
-			for(uint8_t i = 0; i < length; i++)
-			{
-				uart_send("[");
-				uart_send_int(i);
-				uart_send("]:");
-				uart_send_int(payload[i]);
-				uart_send(" ");
-			}
-		}
-
-		uart_send("\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_4:FAIL\r\n");
-	}
-
-	if (state5)
-	{
-		uart_send("PARSER_STATE_5:PASS VALUE:");
-		uart_send_int(checksum_read);
-		uart_send("\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_5:FAIL\r\n");
-	}
-
-	if(state6)
-	{
-		uart_send("PARSER_STATE_6:PASS VALUE:");
-
-		if(checksum_is_true)
-		{
-			uart_send("TRUE");
-		}
-		else
-		{
-			uart_send("FALSE");
-		}
-
-		uart_send("\r\n");
-	}
-	else
-	{
-		uart_send("PARSER_STATE_6:FAIL\r\n");
-	}
-
-	if(error1)
-	{
-		uart_send("ERROR_STATE_3:PASS VALUE: LENGTH_OVERFLOW");
 	}
 }
 
@@ -441,10 +406,27 @@ int main(void)
 
   uart_send("FIRST_PACKET: AA 03 04\r\n");
   process(test_data1, sizeof(test_data1) / sizeof(test_data1[0]));
+
   uart_send("\r\n\r\nSECOND_PACKET: AA 03 01 01 03\r\n");
   process(test_data2, sizeof(test_data2) / sizeof(test_data2[0]));
+
   uart_send("\r\n\r\nTHIRD_PACKET: AA 03 04  AA 03 01 01 03\r\n");
   process(test_data3, sizeof(test_data3) / sizeof(test_data3[0]));
+
+  uart_send("\r\n\r\nFOURTH_PACKET: AA 03 04 55 66 AA 03 01 01 03\r\n");
+  process(test_data4, sizeof(test_data4) / sizeof(test_data4[0]));
+
+  uart_send("\r\n\r\nFIFTH_PACKET: AA 03 01 01 03  AA 03 00 03\r\n");
+  process(test_data5, sizeof(test_data5) / sizeof(test_data5[0]));
+
+  uart_send("\r\n\r\nSIXTH_PACKET: AA 03 01 01 00  AA 03 00 03\r\n");
+  process(test_data6, sizeof(test_data6) / sizeof(test_data6[0]));
+
+
+
+
+
+
 
 
   /* USER CODE END 2 */
