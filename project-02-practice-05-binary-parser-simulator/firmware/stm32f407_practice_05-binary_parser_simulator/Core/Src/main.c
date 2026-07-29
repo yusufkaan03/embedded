@@ -40,8 +40,15 @@ typedef enum
 	PARSER_READ_LENGTH,
 	PARSER_READ_PAYLOAD,
 	PARSER_READ_CHECKSUM,
-	PARSER_CALCULATE_CHECKSUM
+	PARSER_CALCULATE_CHECKSUM,
+	PARSER_ERROR
 }Parser_t;
+
+typedef enum
+{
+	NO_ERROR,
+	LENGTH_ERROR,
+}ErrorMode_t;
 
 /* USER CODE END PTD */
 
@@ -62,7 +69,11 @@ typedef enum
 /* USER CODE BEGIN PV */
 
 Parser_t parser_state = PARSER_WAIT_START;
-static const uint8_t test_data[] = {0xAAU, 0x03U, 0x00U, 0x03U};
+ErrorMode_t error_state = NO_ERROR;
+
+static const uint8_t test_data1[] = {0xAAU, 0x03U, 0x04U};
+static const uint8_t test_data2[] = {0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
+static const uint8_t test_data3[] = {0xAAU, 0x03U, 0x04U, 0xAAU, 0x03U, 0x01U, 0x01U, 0x03U};
 
 static uint8_t command = 0U;
 static uint8_t length = 0U;
@@ -124,6 +135,12 @@ void parser_process_byte(uint8_t byte)
 		{
 			parser_state = PARSER_READ_CHECKSUM;
 		}
+
+		else if (length > PAYLOAD_SIZE)
+		{
+			parser_state = PARSER_ERROR;
+			error_state = LENGTH_ERROR;
+		}
 		else
 		{
 		parser_state = PARSER_READ_PAYLOAD;
@@ -180,9 +197,29 @@ bool calculate_checksum(void)
 	}
 }
 
-void process(void)
+void cleaning(void)
 {
 	parser_state = PARSER_WAIT_START;
+	error_state = NO_ERROR;
+	command = 0U;
+	length = 0U;
+	payload_index = 0U;
+	checksum_read = 0U;
+	checksum_is_true = false;
+}
+
+void error_msg(uint8_t error)
+{
+	if(error == 1U)
+	{
+		uart_send("ERROR_STATE_3:PASS VALUE: LENGTH_OVERFLOW");
+	}
+}
+
+void process(const uint8_t *data, uint8_t size)
+{
+	parser_state = PARSER_WAIT_START;
+	error_state = NO_ERROR;
 	command = 0U;
 	length = 0U;
 	payload_index = 0U;
@@ -196,38 +233,69 @@ void process(void)
 	bool state5 = false;
 	bool state6 = false;
 
-	for(uint8_t i = 0; i < sizeof(test_data); i++)
+	bool error1 = false;
+
+	uint8_t error_stage_number = 0U;
+
+	for(uint8_t i = 0; i < size; i++)
 	{
-		parser_process_byte(test_data[i]);
+		parser_process_byte(data[i]);
 
-		if (parser_state == PARSER_READ_COMMAND && state1 == false)
+		if (error_state == NO_ERROR)
 		{
-			state1 = true;
+
+			if (parser_state == PARSER_READ_COMMAND && state1 == false)
+			{
+				state1 = true;
+			}
+
+			if (parser_state == PARSER_READ_LENGTH && state1 == true)
+			{
+				state2 = true;
+			}
+
+			if (parser_state == PARSER_READ_CHECKSUM && state2 == true)
+			{
+				state3 = true;
+			}
+
+			else if (parser_state == PARSER_READ_PAYLOAD && state2 == true)
+			{
+				state3 = true;
+			}
+
+			if (parser_state == PARSER_READ_CHECKSUM && state3 == true)
+			{
+				state4 = true;
+			}
+
+			if (parser_state == PARSER_CALCULATE_CHECKSUM && state4 == true)
+			{
+				state5 = true;
+			}
+
 		}
 
-		if (parser_state == PARSER_READ_LENGTH && state1 == true)
+		if(parser_state == PARSER_ERROR)
 		{
-			state2 = true;
-		}
+			if(error_state == LENGTH_ERROR && state2 == true)
+			{
+				error1 = true;
+				error_stage_number = 1U;
+				error_msg(error_stage_number);
+				uart_send("\r\n");
 
-		if (parser_state == PARSER_READ_CHECKSUM && state2 == true)
-		{
-			state3 = true;
-		}
+				cleaning();
 
-		else if (parser_state == PARSER_READ_PAYLOAD && state2 == true)
-		{
-			state3 = true;
-		}
+				state1 = false;
+				state2 = false;
+				state3 = false;
+				state4 = false;
+				state5 = false;
+				state6 = false;
 
-		if (parser_state == PARSER_READ_CHECKSUM && state3 == true)
-		{
-			state4 = true;
-		}
-
-		if (parser_state == PARSER_CALCULATE_CHECKSUM && state4 == true)
-		{
-			state5 = true;
+				error1 = false;
+			}
 		}
 	}
 
@@ -291,7 +359,7 @@ void process(void)
 	}
 	else
 	{
-		uart_send("PARSER_STATE_4:FAIL");
+		uart_send("PARSER_STATE_4:FAIL\r\n");
 	}
 
 	if (state5)
@@ -299,6 +367,10 @@ void process(void)
 		uart_send("PARSER_STATE_5:PASS VALUE:");
 		uart_send_int(checksum_read);
 		uart_send("\r\n");
+	}
+	else
+	{
+		uart_send("PARSER_STATE_5:FAIL\r\n");
 	}
 
 	if(state6)
@@ -313,10 +385,17 @@ void process(void)
 		{
 			uart_send("FALSE");
 		}
+
+		uart_send("\r\n");
 	}
 	else
 	{
-		uart_send("PARSER_STATE_6:FAIL");
+		uart_send("PARSER_STATE_6:FAIL\r\n");
+	}
+
+	if(error1)
+	{
+		uart_send("ERROR_STATE_3:PASS VALUE: LENGTH_OVERFLOW");
 	}
 }
 
@@ -360,7 +439,13 @@ int main(void)
   uart_send(boot_msg_head);
   uart_send(boot_msg);
 
-  process();
+  uart_send("FIRST_PACKET: AA 03 04\r\n");
+  process(test_data1, sizeof(test_data1) / sizeof(test_data1[0]));
+  uart_send("\r\n\r\nSECOND_PACKET: AA 03 01 01 03\r\n");
+  process(test_data2, sizeof(test_data2) / sizeof(test_data2[0]));
+  uart_send("\r\n\r\nTHIRD_PACKET: AA 03 04  AA 03 01 01 03\r\n");
+  process(test_data3, sizeof(test_data3) / sizeof(test_data3[0]));
+
 
   /* USER CODE END 2 */
 
