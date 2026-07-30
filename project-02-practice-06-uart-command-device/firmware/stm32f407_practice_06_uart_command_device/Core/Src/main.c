@@ -50,13 +50,15 @@ typedef enum
 	INVALID_COMMAND_ERROR,
 	LENGTH_OVERFLOW_ERROR,
 	INVALID_LENGTH_ERROR,
+	INVALID_PAYLOAD_ERROR,
 	CHECKSUM_ERROR
 }ErrorMode_t;
 
 typedef enum
 {
 	COMMAND_WAIT,
-	COMMAND_PING
+	COMMAND_PING,
+	COMMAND_SET_LED
 }CommandMode_t;
 
 /* USER CODE END PTD */
@@ -86,9 +88,11 @@ static uint8_t rx_payload[PAYLOAD_SIZE];
 static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
-static uint8_t available_commands[] = {0x01U};
+static uint8_t available_commands[] = {0x01U, 0x02U};
 static uint8_t command = 0U;
 static uint8_t command_length = 0U;
+static uint8_t command_payload_1_max = 0U;
+static uint8_t command_payload_1_min = 0U;
 
 const uint8_t commands_size = (sizeof(available_commands) / sizeof(available_commands[0]));
 
@@ -107,11 +111,12 @@ void uart_send(char* text);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void comand_msg(void)
+void command_msg(void)
 {
 	uart_send("START_PACKET\r\n");
 	uart_send("\r\n--- AVAILABLE COMMANDS ---\r\n");
 	uart_send("0x01 : PING COMMAND\r\n");
+	uart_send("0x02 : SET_LED COMMAND\r\n");
 	uart_send("--------------------------\r\n\r\n");
 }
 void uart_send(char* text)
@@ -128,7 +133,7 @@ void uart_send_byte(uint8_t byte)
 	HAL_UART_Transmit(&huart2, (uint8_t* )send_msg, len, HAL_MAX_DELAY);
 }
 
-void payload_recoder(uint8_t byte)
+void payload_recorder(uint8_t byte)
 {
 	rx_payload[payload_index] = byte;
 	payload_index++;
@@ -180,6 +185,20 @@ void SuccessHandler(void)
 		uart_send("PONG\r\n");
 		break;
 
+	case COMMAND_SET_LED:
+		uart_send("LED ");
+		if(rx_payload[0] == 0x00)
+		{
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+			uart_send("OFF\r\n");
+		}
+		else
+		{
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+			uart_send("ON\r\n");
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -202,7 +221,17 @@ void command_details(void)
 	if (command == 0x01)
 	{
 		command_length = 0x00U;
+		command_payload_1_max = 0x01U;
+		command_payload_1_min = 0x00U;
 		command_state = COMMAND_PING;
+	}
+
+	else if (command == 0x02)
+	{
+		command_length = 0x01U;
+		command_payload_1_max = 0x01U;
+		command_payload_1_min = 0x00U;
+		command_state = COMMAND_SET_LED;
 	}
 
 }
@@ -224,6 +253,11 @@ void FailHandler(void)
 		uart_send("LENGTH_OVERFLOW_ERROR\r\n");
 	}
 
+	else if(parser_state == PARSER_ERROR && error_state == INVALID_PAYLOAD_ERROR)
+	{
+		uart_send("INVALID_PAYLOAD_ERROR\r\n");
+	}
+
 	else if (parser_state == PARSER_ERROR && error_state == CHECKSUM_ERROR)
 	{
 		uart_send("CHECKSUM_ERROR\r\n");
@@ -235,8 +269,6 @@ bool WorkflowManager(void)
 {
 	bool workflow_pass = true;
 	uint8_t checksum = 0U;
-
-	command_details();
 
 	if (rx_length > PAYLOAD_SIZE)
 	{
@@ -257,6 +289,8 @@ bool WorkflowManager(void)
 		}
 	}
 
+	command_details();
+
 	if(workflow_pass && command == 0U)
 	{
 		parser_state = PARSER_ERROR;
@@ -271,6 +305,19 @@ bool WorkflowManager(void)
 		workflow_pass = false;
 	}
 
+	if(workflow_pass)
+	{
+		for (uint8_t i = 0; i < rx_length; i++)
+		{
+			if (rx_payload[i] < command_payload_1_min || rx_payload[i] > command_payload_1_max)
+			{
+				parser_state = PARSER_ERROR;
+				error_state = INVALID_PAYLOAD_ERROR;
+				workflow_pass = false;
+			}
+		}
+	}
+
 	return workflow_pass;
 }
 
@@ -283,7 +330,7 @@ void parserDataPipeline(uint8_t byte)
 			{
 				uart_send("AA\r\n");
 				parser_state = PARSER_READ_COMMAND;
-				comand_msg();
+				command_msg();
 				uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
 			}
 			break;
@@ -315,7 +362,7 @@ void parserDataPipeline(uint8_t byte)
 			break;
 
 		case PARSER_READ_PAYLOAD:
-			payload_recoder(byte);
+			payload_recorder(byte);
 			uart_send_byte(byte);
 			if(payload_index >= rx_length)
 			{
