@@ -99,7 +99,11 @@ void uart_send(char* text)
 
 void uart_send_byte(uint8_t byte)
 {
-	HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+	char send_msg[12];
+
+	uint8_t len = sprintf(send_msg, "0x%02X", byte);
+
+	HAL_UART_Transmit(&huart2, (uint8_t* )send_msg, len, HAL_MAX_DELAY);
 }
 
 void payload_recoder(uint8_t byte)
@@ -124,15 +128,15 @@ uint8_t calc_checksum(void)
 
 void SuccessHandler(void)
 {
-	uart_send("RX_COMMAND:");
+	uart_send("\r\nRX_COMMAND:");
 	uart_send_byte(rx_command);
-	uart_send("\r\n_RX_LENGTH:");
+	uart_send("\r\nRX_LENGTH:");
 	uart_send_byte(rx_length);
 	uart_send("\r\nRX_PAYLOAD:");
 
 	if (rx_length == 0x00U)
 	{
-		uart_send("NO_PAYLOAD!");
+		uart_send("NO_PAYLOAD");
 	}
 	else
 	{
@@ -198,26 +202,31 @@ void parserDataPipeline(uint8_t byte)
 		case PARSER_WAIT_START:
 			if (byte == 0xAAU)
 			{
+				uart_send("START_PACKET\r\n");
 				parser_state = PARSER_READ_COMMAND;
+				uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
 			}
 			break;
 
 		case PARSER_READ_COMMAND:
-			uart_send("command\r\n");
 			rx_command = byte;
+			uart_send_byte(rx_command);
 			parser_state = PARSER_READ_LENGTH;
+			uart_send("\r\n[STATUS: AWAITING_LENGTH] Please enter the payload length (in bytes):");
 			break;
 
 		case PARSER_READ_LENGTH:
-			uart_send("length\r\n");
 			rx_length = byte;
+			uart_send_byte(rx_length);
 			if (rx_length == 0x00U)
 			{
 				parser_state = PARSER_READ_CALC_CHECKSUM;
+				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
 			}
 			else if(rx_length <= PAYLOAD_SIZE)
 			{
 				parser_state = PARSER_READ_PAYLOAD;
+				uart_send("\r\n[STATUS: AWAITING_PAYLOAD] Please enter the hex data payload:");
 			}
 			else
 			{
@@ -227,16 +236,17 @@ void parserDataPipeline(uint8_t byte)
 
 		case PARSER_READ_PAYLOAD:
 			payload_recoder(byte);
-			uart_send("record\r\n");
+			uart_send_byte(byte);
 			if(payload_index >= rx_length)
 			{
+				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
 				parser_state = PARSER_READ_CALC_CHECKSUM;
 			}
 			break;
 
 		case PARSER_READ_CALC_CHECKSUM:
-			uart_send("checsum\r\n");
 			rx_checksum = byte;
+			uart_send_byte(rx_checksum);
 			parser_state = PARSER_HANDLER;
 			break;
 
@@ -297,6 +307,7 @@ int main(void)
   char boot_msg_head[] = "\r\n\r\n/---------------/\r\n";
   uart_send(boot_msg_head);
   uart_send(boot_msg);
+  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
 
   if (HAL_UART_Receive_IT(&huart2, &rx_byte, 1U) != HAL_OK)
   {
@@ -304,6 +315,7 @@ int main(void)
   }
 
 bool success = false;
+bool start_msg_is = false;
 
 
   /* USER CODE END 2 */
@@ -313,9 +325,14 @@ bool success = false;
   while (1)
   {
     /* USER CODE END WHILE */
+	  if (start_msg_is == true && parser_state == PARSER_WAIT_START)
+	   {
+	 	  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
+		  start_msg_is = false;
+	   }
+
 	  if (rx_byte_ready == true)
 	  {
-
 		  parserDataPipeline(rx_byte);
 
 		  if(parser_state == PARSER_HANDLER || parser_state == PARSER_ERROR)
@@ -331,6 +348,7 @@ bool success = false;
 				  FailHandler();
 				  resetState();
 			  }
+			  start_msg_is = true;
 		  }
 
 		  rx_byte_ready = false;
