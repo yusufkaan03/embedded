@@ -47,9 +47,17 @@ typedef enum
 typedef enum
 {
 	NO_ERROR,
-	LENGTH_ERROR,
+	INVALID_COMMAND_ERROR,
+	LENGTH_OVERFLOW_ERROR,
+	INVALID_LENGTH_ERROR,
 	CHECKSUM_ERROR
 }ErrorMode_t;
+
+typedef enum
+{
+	COMMAND_WAIT,
+	COMMAND_PING
+}CommandMode_t;
 
 /* USER CODE END PTD */
 
@@ -78,20 +86,34 @@ static uint8_t rx_payload[PAYLOAD_SIZE];
 static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
+static uint8_t available_commands[] = {0x01U};
+static uint8_t command = 0U;
+static uint8_t command_length = 0U;
+
+const uint8_t commands_size = (sizeof(available_commands) / sizeof(available_commands[0]));
+
 static Parser_t parser_state = PARSER_WAIT_START;
 static ErrorMode_t error_state = NO_ERROR;
+static CommandMode_t command_state = COMMAND_WAIT;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void uart_send(char* text);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void comand_msg(void)
+{
+	uart_send("START_PACKET\r\n");
+	uart_send("\r\n--- AVAILABLE COMMANDS ---\r\n");
+	uart_send("0x01 : PING COMMAND\r\n");
+	uart_send("--------------------------\r\n\r\n");
+}
 void uart_send(char* text)
 {
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
@@ -146,25 +168,66 @@ void SuccessHandler(void)
 		}
 	}
 
+
 	uart_send("\r\nRX_CHECKSUM:");
 	uart_send_byte(rx_checksum);
-	uart_send("\r\nRX_RESULT:TRUE\r\n");
+	uart_send("\r\nRESULT:OK\r\nRESPONSE:");
+
+
+	switch(command_state)
+	{
+	case COMMAND_PING:
+		uart_send("PONG\r\n");
+		break;
+
+	default:
+		break;
+	}
+
+}
+
+void command_details(void)
+{
+	command = 0U;
+	command_length = 0U;
+
+	for (uint8_t i = 0; i < commands_size; i++)
+	{
+		if (rx_command == available_commands[i])
+		{
+			command = rx_command;
+		}
+	}
+
+	if (command == 0x01)
+	{
+		command_length = 0x00U;
+		command_state = COMMAND_PING;
+	}
 
 }
 
 void FailHandler(void)
 {
-	if(parser_state == PARSER_ERROR && error_state == LENGTH_ERROR)
+	uart_send("RESULT:ERROR\r\nERROR:");
+	if(parser_state == PARSER_ERROR && error_state == INVALID_COMMAND_ERROR)
 	{
-		uart_send("LENGTH_ERROR\r\n");
+		uart_send("INVALID_COMMAND_ERROR\r\n");
+	}
+	else if(parser_state == PARSER_ERROR && error_state == INVALID_LENGTH_ERROR)
+	{
+		uart_send("INVALID_LENGTH_ERROR\r\n");
+	}
+
+	else if(parser_state == PARSER_ERROR && error_state == LENGTH_OVERFLOW_ERROR)
+	{
+		uart_send("LENGTH_OVERFLOW_ERROR\r\n");
 	}
 
 	else if (parser_state == PARSER_ERROR && error_state == CHECKSUM_ERROR)
 	{
 		uart_send("CHECKSUM_ERROR\r\n");
 	}
-
-	uart_send("RESULT:FALSE\r\n");
 
 }
 
@@ -173,10 +236,12 @@ bool WorkflowManager(void)
 	bool workflow_pass = true;
 	uint8_t checksum = 0U;
 
+	command_details();
+
 	if (rx_length > PAYLOAD_SIZE)
 	{
 		parser_state = PARSER_ERROR;
-		error_state = LENGTH_ERROR;
+		error_state = LENGTH_OVERFLOW_ERROR;
 		workflow_pass = false;
 	}
 
@@ -192,6 +257,20 @@ bool WorkflowManager(void)
 		}
 	}
 
+	if(workflow_pass && command == 0U)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = INVALID_COMMAND_ERROR;
+		workflow_pass = false;
+	}
+
+	if(workflow_pass && rx_length != command_length)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = INVALID_LENGTH_ERROR;
+		workflow_pass = false;
+	}
+
 	return workflow_pass;
 }
 
@@ -202,8 +281,9 @@ void parserDataPipeline(uint8_t byte)
 		case PARSER_WAIT_START:
 			if (byte == 0xAAU)
 			{
-				uart_send("START_PACKET\r\n");
+				uart_send("AA\r\n");
 				parser_state = PARSER_READ_COMMAND;
+				comand_msg();
 				uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
 			}
 			break;
@@ -247,6 +327,7 @@ void parserDataPipeline(uint8_t byte)
 		case PARSER_READ_CALC_CHECKSUM:
 			rx_checksum = byte;
 			uart_send_byte(rx_checksum);
+			uart_send("\r\n");
 			parser_state = PARSER_HANDLER;
 			break;
 
@@ -266,8 +347,12 @@ void resetState(void)
 	}
 	rx_checksum = 0U;
 
+	command = 0U;
+	command_length = 0U;
+
 	parser_state = PARSER_WAIT_START;
 	error_state = NO_ERROR;
+	command_state = COMMAND_WAIT;
 }
 /* USER CODE END 0 */
 
@@ -325,7 +410,7 @@ bool start_msg_is = false;
   while (1)
   {
     /* USER CODE END WHILE */
-	  if (start_msg_is == true && parser_state == PARSER_WAIT_START)
+	  if (start_msg_is)
 	   {
 	 	  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
 		  start_msg_is = false;
