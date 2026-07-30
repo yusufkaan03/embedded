@@ -70,7 +70,7 @@ typedef enum
 /* USER CODE BEGIN PV */
 
 static uint8_t rx_byte = 0U;
-static bool rx_byte_ready = false;
+volatile static bool rx_byte_ready = false;
 
 static uint8_t rx_command = 0U;
 static uint8_t rx_length = 0U;
@@ -133,11 +133,11 @@ bool calc_checksum(void)
 
 void SuccessHandler(void)
 {
-	uart_send("COMMAND:");
+	uart_send("RX_COMMAND:");
 	uart_send_byte(rx_command);
-	uart_send("\r\nLENGTH:");
+	uart_send("\r\n_RX_LENGTH:");
 	uart_send_byte(rx_length);
-	uart_send("\r\nPAYLOAD:");
+	uart_send("\r\nRX_PAYLOAD:");
 
 	if (rx_length == 0x00U)
 	{
@@ -155,9 +155,9 @@ void SuccessHandler(void)
 		}
 	}
 
-	uart_send("\r\nCHECKSUM:");
+	uart_send("\r\nRX_CHECKSUM:");
 	uart_send_byte(rx_checksum);
-	uart_send("\r\nRESULT:TRUE");
+	uart_send("\r\nRX_RESULT:TRUE");
 
 }
 
@@ -193,7 +193,6 @@ void parserDataPipeline(uint8_t byte)
 			if (byte == 0xAAU)
 			{
 				parser_state = PARSER_READ_COMMAND;
-				uart_send("\r\nPARSER_READ_COMMAND:");
 			}
 			break;
 
@@ -201,7 +200,6 @@ void parserDataPipeline(uint8_t byte)
 			rx_command = byte;
 			parser_state = PARSER_READ_LENGTH;
 			uart_send_byte(rx_command);
-			uart_send("\r\nPARSER_READ_LENGTH:");
 			break;
 
 		case PARSER_READ_LENGTH:
@@ -210,12 +208,10 @@ void parserDataPipeline(uint8_t byte)
 			if (rx_length == 0x00U)
 			{
 				parser_state = PARSER_READ_CALC_CHECKSUM;
-				uart_send("\r\nPARSER_READ_CALC_CHECKSUM:");
 			}
 			else
 			{
 				parser_state = PARSER_READ_PAYLOAD;
-				uart_send("\r\nPARSER_READ_PAYLOAD:");
 			}
 			break;
 
@@ -223,11 +219,9 @@ void parserDataPipeline(uint8_t byte)
 			if (payload_index < rx_length)
 			{
 				payload_recoder(byte);
-				uart_send("\r\nPAYLOAD_WRITE:");
 				if(payload_index >= rx_length)
 				{
 					parser_state = PARSER_READ_CALC_CHECKSUM;
-					uart_send("\r\nPARSER_READ_CALC_CHECKSUM:");
 				}
 			}
 			break;
@@ -235,7 +229,6 @@ void parserDataPipeline(uint8_t byte)
 		case PARSER_READ_CALC_CHECKSUM:
 			rx_checksum = byte;
 			parser_state = PARSER_HANDLER;
-			uart_send("\r\nPARSER_HANDLER\r\n");
 			break;
 
 		default:
@@ -318,18 +311,14 @@ bool success = false;
 
 		  if(parser_state == PARSER_HANDLER)
 		  {
-			  uart_send("WORKFLOW_IF\r\n");
 			  success = WorkflowManager();
-			  uart_send("WORKFOLW_END\r\n");
 			  if (success == true)
 			  {
-				  uart_send("SUCCES\r\n");
 				  SuccessHandler();
 				  resetState();
 			  }
 			  else
 			  {
-				  uart_send("FAIL\r\n");
 				  FailHandler();
 				  resetState();
 			  }
