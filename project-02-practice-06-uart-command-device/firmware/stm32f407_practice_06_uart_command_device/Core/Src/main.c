@@ -48,7 +48,7 @@ typedef enum
 {
 	NO_ERROR,
 	LENGTH_ERROR,
-	CHECSUM_ERROR
+	CHECKSUM_ERROR
 }ErrorMode_t;
 
 /* USER CODE END PTD */
@@ -56,7 +56,7 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PAYLOAD_SIZE 32
+#define PAYLOAD_SIZE 3U
 
 /* USER CODE END PD */
 
@@ -104,13 +104,11 @@ void uart_send_byte(uint8_t byte)
 
 void payload_recoder(uint8_t byte)
 {
-	if (payload_index < PAYLOAD_SIZE)
-	{
-		rx_payload[payload_index] = byte;
-		payload_index++;
-	}
+	rx_payload[payload_index] = byte;
+	payload_index++;
 }
-bool calc_checksum(void)
+
+uint8_t calc_checksum(void)
 {
 	uint8_t sum = 0U;
 
@@ -121,14 +119,7 @@ bool calc_checksum(void)
 		sum = sum ^ rx_payload[i];
 	}
 
-	if (sum == rx_checksum)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
+	return sum;
 }
 
 void SuccessHandler(void)
@@ -147,42 +138,57 @@ void SuccessHandler(void)
 	{
 		for (uint8_t i = 0U; i < rx_length; i++)
 		{
-			char buffer[12];
-
-			uint8_t len = sprintf(buffer, "[%d] ", rx_payload[i]);
-
-			HAL_UART_Transmit(&huart2, (uint8_t* )buffer, len, HAL_MAX_DELAY);
+			uart_send_byte(rx_payload[i]);
 		}
 	}
 
 	uart_send("\r\nRX_CHECKSUM:");
 	uart_send_byte(rx_checksum);
-	uart_send("\r\nRX_RESULT:TRUE");
+	uart_send("\r\nRX_RESULT:TRUE\r\n");
 
 }
 
 void FailHandler(void)
 {
+	if(parser_state == PARSER_ERROR && error_state == LENGTH_ERROR)
+	{
+		uart_send("LENGTH_ERROR\r\n");
+	}
+
+	else if (parser_state == PARSER_ERROR && error_state == CHECKSUM_ERROR)
+	{
+		uart_send("CHECKSUM_ERROR\r\n");
+	}
+
+	uart_send("RESULT:FALSE\r\n");
 
 }
 
 bool WorkflowManager(void)
 {
-	uint8_t checksum_is_true = false;
+	bool workflow_pass = true;
+	uint8_t checksum = 0U;
 
-	checksum_is_true = calc_checksum();
-
-	if (checksum_is_true == false)
+	if (rx_length > PAYLOAD_SIZE)
 	{
 		parser_state = PARSER_ERROR;
-		error_state = CHECSUM_ERROR;
-		return false;
-	}
-	else
-	{
-		return true;
+		error_state = LENGTH_ERROR;
+		workflow_pass = false;
 	}
 
+	if (workflow_pass)
+	{
+		checksum = calc_checksum();
+
+		if (checksum != rx_checksum)
+		{
+			parser_state = PARSER_ERROR;
+			error_state = CHECKSUM_ERROR;
+			workflow_pass = false;
+		}
+	}
+
+	return workflow_pass;
 }
 
 void parserDataPipeline(uint8_t byte)
@@ -197,36 +203,39 @@ void parserDataPipeline(uint8_t byte)
 			break;
 
 		case PARSER_READ_COMMAND:
+			uart_send("command\r\n");
 			rx_command = byte;
 			parser_state = PARSER_READ_LENGTH;
-			uart_send_byte(rx_command);
 			break;
 
 		case PARSER_READ_LENGTH:
+			uart_send("length\r\n");
 			rx_length = byte;
-			uart_send_byte(rx_byte);
 			if (rx_length == 0x00U)
 			{
 				parser_state = PARSER_READ_CALC_CHECKSUM;
 			}
-			else
+			else if(rx_length <= PAYLOAD_SIZE)
 			{
 				parser_state = PARSER_READ_PAYLOAD;
+			}
+			else
+			{
+				parser_state = PARSER_ERROR;
 			}
 			break;
 
 		case PARSER_READ_PAYLOAD:
-			if (payload_index < rx_length)
+			payload_recoder(byte);
+			uart_send("record\r\n");
+			if(payload_index >= rx_length)
 			{
-				payload_recoder(byte);
-				if(payload_index >= rx_length)
-				{
-					parser_state = PARSER_READ_CALC_CHECKSUM;
-				}
+				parser_state = PARSER_READ_CALC_CHECKSUM;
 			}
 			break;
 
 		case PARSER_READ_CALC_CHECKSUM:
+			uart_send("checsum\r\n");
 			rx_checksum = byte;
 			parser_state = PARSER_HANDLER;
 			break;
@@ -309,7 +318,7 @@ bool success = false;
 
 		  parserDataPipeline(rx_byte);
 
-		  if(parser_state == PARSER_HANDLER)
+		  if(parser_state == PARSER_HANDLER || parser_state == PARSER_ERROR)
 		  {
 			  success = WorkflowManager();
 			  if (success == true)
@@ -323,8 +332,6 @@ bool success = false;
 				  resetState();
 			  }
 		  }
-
-		  /*HAL_UART_Transmit(&huart2, &rx_byte, 1U, HAL_MAX_DELAY);*/
 
 		  rx_byte_ready = false;
 
