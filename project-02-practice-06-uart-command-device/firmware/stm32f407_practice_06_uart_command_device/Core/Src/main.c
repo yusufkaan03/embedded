@@ -58,7 +58,8 @@ typedef enum
 {
 	COMMAND_WAIT,
 	COMMAND_PING,
-	COMMAND_SET_LED
+	COMMAND_SET_LED,
+	COMMAND_GET_LED
 }CommandMode_t;
 
 /* USER CODE END PTD */
@@ -88,8 +89,9 @@ static uint8_t rx_payload[PAYLOAD_SIZE];
 static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
-static uint8_t available_commands[] = {0x01U, 0x02U};
+static uint8_t available_commands[] = {0x01U, 0x02U, 0x03U};
 static uint8_t command = 0U;
+static uint8_t command_value = 0U;
 static uint8_t command_length = 0U;
 static uint8_t command_payload_1_max = 0U;
 static uint8_t command_payload_1_min = 0U;
@@ -117,6 +119,7 @@ void command_msg(void)
 	uart_send("\r\n--- AVAILABLE COMMANDS ---\r\n");
 	uart_send("0x01 : PING COMMAND\r\n");
 	uart_send("0x02 : SET_LED COMMAND\r\n");
+	uart_send("0x03 : GET_LED COMMAND\r\n");
 	uart_send("--------------------------\r\n\r\n");
 }
 void uart_send(char* text)
@@ -125,6 +128,11 @@ void uart_send(char* text)
 }
 
 void uart_send_byte(uint8_t byte)
+{
+	HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+}
+
+void uart_send_hex(uint8_t byte)
 {
 	char send_msg[12];
 
@@ -156,9 +164,9 @@ uint8_t calc_checksum(void)
 void SuccessHandler(void)
 {
 	uart_send("\r\nRX_COMMAND:");
-	uart_send_byte(rx_command);
+	uart_send_hex(rx_command);
 	uart_send("\r\nRX_LENGTH:");
-	uart_send_byte(rx_length);
+	uart_send_hex(rx_length);
 	uart_send("\r\nRX_PAYLOAD:");
 
 	if (rx_length == 0x00U)
@@ -169,13 +177,13 @@ void SuccessHandler(void)
 	{
 		for (uint8_t i = 0U; i < rx_length; i++)
 		{
-			uart_send_byte(rx_payload[i]);
+			uart_send_hex(rx_payload[i]);
 		}
 	}
 
 
 	uart_send("\r\nRX_CHECKSUM:");
-	uart_send_byte(rx_checksum);
+	uart_send_hex(rx_checksum);
 	uart_send("\r\nRESULT:OK\r\nRESPONSE:");
 
 
@@ -196,6 +204,19 @@ void SuccessHandler(void)
 		{
 			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
 			uart_send("ON\r\n");
+		}
+		break;
+
+	case COMMAND_GET_LED:
+		uart_send("LED_STATUS_");
+		command_value = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		if (command_value)
+		{
+			uart_send("ON\r\n");
+		}
+		else
+		{
+			uart_send("OFF\r\n");
 		}
 		break;
 
@@ -220,6 +241,7 @@ void command_details(void)
 
 	if (command == 0x01)
 	{
+		command_value = 0U;
 		command_length = 0x00U;
 		command_payload_1_max = 0x01U;
 		command_payload_1_min = 0x00U;
@@ -228,10 +250,20 @@ void command_details(void)
 
 	else if (command == 0x02)
 	{
+		command_value = 0U;
 		command_length = 0x01U;
 		command_payload_1_max = 0x01U;
 		command_payload_1_min = 0x00U;
 		command_state = COMMAND_SET_LED;
+	}
+
+	else if (command == 0x03)
+	{
+		command_value = 0U;
+		command_length = 0x00U;
+		command_payload_1_max = 0U;
+		command_payload_1_min = 0U;
+		command_state = COMMAND_GET_LED;
 	}
 
 }
@@ -337,14 +369,14 @@ void parserDataPipeline(uint8_t byte)
 
 		case PARSER_READ_COMMAND:
 			rx_command = byte;
-			uart_send_byte(rx_command);
+			uart_send_hex(rx_command);
 			parser_state = PARSER_READ_LENGTH;
 			uart_send("\r\n[STATUS: AWAITING_LENGTH] Please enter the payload length (in bytes):");
 			break;
 
 		case PARSER_READ_LENGTH:
 			rx_length = byte;
-			uart_send_byte(rx_length);
+			uart_send_hex(rx_length);
 			if (rx_length == 0x00U)
 			{
 				parser_state = PARSER_READ_CALC_CHECKSUM;
@@ -363,7 +395,7 @@ void parserDataPipeline(uint8_t byte)
 
 		case PARSER_READ_PAYLOAD:
 			payload_recorder(byte);
-			uart_send_byte(byte);
+			uart_send_hex(byte);
 			if(payload_index >= rx_length)
 			{
 				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
@@ -373,7 +405,7 @@ void parserDataPipeline(uint8_t byte)
 
 		case PARSER_READ_CALC_CHECKSUM:
 			rx_checksum = byte;
-			uart_send_byte(rx_checksum);
+			uart_send_hex(rx_checksum);
 			uart_send("\r\n");
 			parser_state = PARSER_HANDLER;
 			break;
@@ -395,7 +427,10 @@ void resetState(void)
 	rx_checksum = 0U;
 
 	command = 0U;
+	command_value = 0U;
 	command_length = 0U;
+	command_payload_1_max = 0U;
+	command_payload_1_min = 0U;
 
 	parser_state = PARSER_WAIT_START;
 	error_state = NO_ERROR;
