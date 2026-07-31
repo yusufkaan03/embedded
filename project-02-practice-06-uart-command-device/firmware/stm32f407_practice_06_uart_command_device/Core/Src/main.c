@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -51,7 +52,9 @@ typedef enum
 	LENGTH_OVERFLOW_ERROR,
 	INVALID_LENGTH_ERROR,
 	INVALID_PAYLOAD_ERROR,
-	CHECKSUM_ERROR
+	CHECKSUM_ERROR,
+	ADC_READ_ERROR,
+	TIMEOUT_ERROR
 }ErrorMode_t;
 
 typedef enum
@@ -59,7 +62,8 @@ typedef enum
 	COMMAND_WAIT,
 	COMMAND_PING,
 	COMMAND_SET_LED,
-	COMMAND_GET_LED
+	COMMAND_GET_LED,
+	COMMAND_GET_ADC
 }CommandMode_t;
 
 /* USER CODE END PTD */
@@ -67,7 +71,9 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define PAYLOAD_SIZE 3U
+#define PAYLOAD_SIZE 	3U
+#define ADC_SUM_COUNT 	10U
+#define TIMEOUT_TIME 	5000U
 
 /* USER CODE END PD */
 
@@ -80,6 +86,8 @@ typedef enum
 
 /* USER CODE BEGIN PV */
 
+static uint32_t timeout_count = 0U;
+
 static uint8_t rx_byte = 0U;
 volatile static bool rx_byte_ready = false;
 
@@ -89,9 +97,9 @@ static uint8_t rx_payload[PAYLOAD_SIZE];
 static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
-static uint8_t available_commands[] = {0x01U, 0x02U, 0x03U};
+static uint8_t available_commands[] = {0x01U, 0x02U, 0x03U, 0x04U};
 static uint8_t command = 0U;
-static uint8_t command_value = 0U;
+static uint16_t command_value = 0U;
 static uint8_t command_length = 0U;
 static uint8_t command_payload_1_max = 0U;
 static uint8_t command_payload_1_min = 0U;
@@ -106,8 +114,10 @@ static CommandMode_t command_state = COMMAND_WAIT;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void uart_send(char* text);
 /* USER CODE BEGIN PFP */
+
+void uart_send(char* text);
+void resetState(void);
 
 /* USER CODE END PFP */
 
@@ -120,6 +130,7 @@ void command_msg(void)
 	uart_send("0x01 : PING COMMAND\r\n");
 	uart_send("0x02 : SET_LED COMMAND\r\n");
 	uart_send("0x03 : GET_LED COMMAND\r\n");
+	uart_send("0x04 : GET_ADC COMMAND\r\n");
 	uart_send("--------------------------\r\n\r\n");
 }
 void uart_send(char* text)
@@ -127,9 +138,13 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void uart_send_byte(uint8_t byte)
+void uart_send_uint16(uint16_t byte)
 {
-	HAL_UART_Transmit(&huart2, &byte, 1U, HAL_MAX_DELAY);
+	char send_msg[12];
+
+	uint8_t len = sprintf(send_msg, "%d", byte);
+
+	HAL_UART_Transmit(&huart2, (uint8_t* )send_msg, len, HAL_MAX_DELAY);
 }
 
 void uart_send_hex(uint8_t byte)
@@ -159,6 +174,37 @@ uint8_t calc_checksum(void)
 	}
 
 	return sum;
+}
+
+bool adc_value_check(void)
+{
+	uint32_t raw_sum = 0U;
+	uint8_t sum_count = 0U;
+
+	for (uint8_t i = 0U; i < ADC_SUM_COUNT; i++)
+	{
+		HAL_ADC_Start(&hadc1);
+
+		if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+		{
+			raw_sum += HAL_ADC_GetValue(&hadc1);
+			sum_count++;
+		}
+
+		HAL_ADC_Stop(&hadc1);
+	}
+
+	if (sum_count != 0)
+	{
+		command_value = (uint16_t)(raw_sum/sum_count);
+		return true;
+	}
+
+	else
+	{
+		return false;
+	}
+
 }
 
 void SuccessHandler(void)
@@ -220,16 +266,26 @@ void SuccessHandler(void)
 		}
 		break;
 
+	case COMMAND_GET_ADC:
+		uart_send("ADC_RAW:");
+		uart_send_uint16(command_value);
+		uart_send("\r\n");
+		break;
+
 	default:
 		break;
 	}
 
+	resetState();
 }
 
 void command_details(void)
 {
 	command = 0U;
 	command_length = 0U;
+	command_payload_1_max = 0U;
+	command_payload_1_min = 0U;
+	command_state = COMMAND_WAIT;
 
 	for (uint8_t i = 0; i < commands_size; i++)
 	{
@@ -266,11 +322,20 @@ void command_details(void)
 		command_state = COMMAND_GET_LED;
 	}
 
+	else if (command == 0x04)
+	{
+		command_value = 0U;
+		command_length = 0x00U;
+		command_payload_1_max = 0U;
+		command_payload_1_min = 0U;
+		command_state = COMMAND_GET_ADC;
+	}
+
 }
 
 void FailHandler(void)
 {
-	uart_send("RESULT:ERROR\r\nERROR:");
+	uart_send("\r\nRESULT:ERROR\r\nERROR:");
 	if(parser_state == PARSER_ERROR && error_state == INVALID_COMMAND_ERROR)
 	{
 		uart_send("INVALID_COMMAND_ERROR\r\n");
@@ -295,6 +360,12 @@ void FailHandler(void)
 		uart_send("CHECKSUM_ERROR\r\n");
 	}
 
+	else if (parser_state == PARSER_ERROR && error_state == TIMEOUT_ERROR)
+	{
+		uart_send("TIMEOUT_ERROR\r\n");
+	}
+
+	resetState();
 }
 
 bool WorkflowManager(void)
@@ -350,6 +421,19 @@ bool WorkflowManager(void)
 		}
 	}
 
+	if(workflow_pass)
+	{
+		if(command_state == COMMAND_GET_ADC)
+		{
+			workflow_pass = adc_value_check();
+			if (workflow_pass != true)
+			{
+				parser_state = PARSER_ERROR;
+				error_state = ADC_READ_ERROR;
+			}
+		}
+	}
+
 	return workflow_pass;
 }
 
@@ -364,6 +448,7 @@ void parserDataPipeline(uint8_t byte)
 				parser_state = PARSER_READ_COMMAND;
 				command_msg();
 				uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
+				timeout_count = HAL_GetTick();
 			}
 			break;
 
@@ -372,6 +457,7 @@ void parserDataPipeline(uint8_t byte)
 			uart_send_hex(rx_command);
 			parser_state = PARSER_READ_LENGTH;
 			uart_send("\r\n[STATUS: AWAITING_LENGTH] Please enter the payload length (in bytes):");
+			timeout_count = HAL_GetTick();
 			break;
 
 		case PARSER_READ_LENGTH:
@@ -391,6 +477,7 @@ void parserDataPipeline(uint8_t byte)
 			{
 				parser_state = PARSER_ERROR;
 			}
+			timeout_count = HAL_GetTick();
 			break;
 
 		case PARSER_READ_PAYLOAD:
@@ -401,6 +488,7 @@ void parserDataPipeline(uint8_t byte)
 				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
 				parser_state = PARSER_READ_CALC_CHECKSUM;
 			}
+			timeout_count = HAL_GetTick();
 			break;
 
 		case PARSER_READ_CALC_CHECKSUM:
@@ -468,6 +556,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   char boot_msg[] = "/----BOOT_OK----/\r\n";
@@ -484,7 +573,6 @@ int main(void)
 bool success = false;
 bool start_msg_is = false;
 
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -492,11 +580,22 @@ bool start_msg_is = false;
   while (1)
   {
     /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
 	  if (start_msg_is)
 	   {
 	 	  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
 		  start_msg_is = false;
 	   }
+
+	  if(parser_state != PARSER_WAIT_START && (HAL_GetTick() - timeout_count) >= TIMEOUT_TIME)
+	  {
+		  parser_state = PARSER_ERROR;
+		  error_state = TIMEOUT_ERROR;
+		  FailHandler();
+		  start_msg_is = true;
+	  }
 
 	  if (rx_byte_ready == true)
 	  {
@@ -508,12 +607,10 @@ bool start_msg_is = false;
 			  if (success == true)
 			  {
 				  SuccessHandler();
-				  resetState();
 			  }
 			  else
 			  {
 				  FailHandler();
-				  resetState();
 			  }
 			  start_msg_is = true;
 		  }

@@ -66,9 +66,6 @@ typedef enum
 
 uint32_t last_push_time = 0;
 
-
-
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
