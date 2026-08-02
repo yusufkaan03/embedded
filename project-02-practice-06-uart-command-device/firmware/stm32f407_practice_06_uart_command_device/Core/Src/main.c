@@ -47,23 +47,23 @@ typedef enum
 
 typedef enum
 {
-	NO_ERROR,
-	INVALID_COMMAND_ERROR,
-	LENGTH_OVERFLOW_ERROR,
-	INVALID_LENGTH_ERROR,
-	INVALID_PAYLOAD_ERROR,
-	CHECKSUM_ERROR,
-	ADC_READ_ERROR,
-	TIMEOUT_ERROR
+	NO_ERROR 				= 0x00,
+	INVALID_COMMAND_ERROR	= 0x01,
+	LENGTH_OVERFLOW_ERROR	= 0x02,
+	INVALID_LENGTH_ERROR	= 0x03,
+	INVALID_PAYLOAD_ERROR	= 0x04,
+	CHECKSUM_ERROR			= 0x05,
+	ADC_READ_ERROR			= 0x06,
+	TIMEOUT_ERROR			= 0x07
 }ErrorMode_t;
 
 typedef enum
 {
-	COMMAND_WAIT,
-	COMMAND_PING,
-	COMMAND_SET_LED,
-	COMMAND_GET_LED,
-	COMMAND_GET_ADC
+	COMMAND_WAIT			= 0x00,
+	COMMAND_PING			= 0x01,
+	COMMAND_SET_LED			= 0x02,
+	COMMAND_GET_LED			= 0x03,
+	COMMAND_GET_ADC			= 0x04
 }CommandMode_t;
 
 /* USER CODE END PTD */
@@ -98,11 +98,11 @@ static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
 static uint8_t available_commands[] = {0x01U, 0x02U, 0x03U, 0x04U};
-static uint8_t command = 0U;
 static uint16_t command_value = 0U;
 static uint8_t command_length = 0U;
 static uint8_t command_payload_1_max = 0U;
 static uint8_t command_payload_1_min = 0U;
+static uint8_t command_response = 0U;
 
 const uint8_t commands_size = (sizeof(available_commands) / sizeof(available_commands[0]));
 
@@ -151,7 +151,7 @@ void uart_send_hex(uint8_t byte)
 {
 	char send_msg[12];
 
-	uint8_t len = sprintf(send_msg, "0x%02X", byte);
+	uint8_t len = sprintf(send_msg, "0x%02X ", byte);
 
 	HAL_UART_Transmit(&huart2, (uint8_t* )send_msg, len, HAL_MAX_DELAY);
 }
@@ -162,15 +162,23 @@ void payload_recorder(uint8_t byte)
 	payload_index++;
 }
 
-uint8_t calc_checksum(void)
+uint8_t calc_checksum(bool response)
 {
 	uint8_t sum = 0U;
 
-	sum = rx_command ^ rx_length;
-
-	for(uint8_t i = 0; i < rx_length; i++)
+	if (response)
 	{
-		sum = sum ^ rx_payload[i];
+		sum = command_state ^ error_state;
+		sum ^= command_response;
+
+	}
+	else
+	{
+		sum = rx_command ^ rx_length;
+		for(uint8_t i = 0; i < rx_length; i++)
+		{
+			sum = sum ^ rx_payload[i];
+		}
 	}
 
 	return sum;
@@ -275,13 +283,57 @@ void SuccessHandler(void)
 	default:
 		break;
 	}
-
-	resetState();
 }
 
-void command_details(void)
+bool command_details_check(void)
 {
-	command = 0U;
+	bool pass = true;
+
+	if(pass && command_state == 0U)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = INVALID_COMMAND_ERROR;
+		pass = false;
+	}
+
+	if(pass && rx_length != command_length)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = INVALID_LENGTH_ERROR;
+		pass = false;
+	}
+
+	if(pass)
+	{
+		for (uint8_t i = 0; i < rx_length; i++)
+		{
+			if (rx_payload[i] < command_payload_1_min || rx_payload[i] > command_payload_1_max)
+			{
+				parser_state = PARSER_ERROR;
+				error_state = INVALID_PAYLOAD_ERROR;
+				pass = false;
+			}
+		}
+	}
+
+	if(pass)
+	{
+		if(command_state == COMMAND_GET_ADC)
+		{
+			pass = adc_value_check();
+			if (pass != true)
+			{
+				parser_state = PARSER_ERROR;
+				error_state = ADC_READ_ERROR;
+			}
+		}
+	}
+
+	return pass;
+}
+
+void command_handler(void)
+{
 	command_length = 0U;
 	command_payload_1_max = 0U;
 	command_payload_1_min = 0U;
@@ -291,44 +343,40 @@ void command_details(void)
 	{
 		if (rx_command == available_commands[i])
 		{
-			command = rx_command;
+			command_state = rx_command;
 		}
 	}
 
-	if (command == 0x01)
+	if (command_state == 0x01)
 	{
 		command_value = 0U;
 		command_length = 0x00U;
 		command_payload_1_max = 0x01U;
 		command_payload_1_min = 0x00U;
-		command_state = COMMAND_PING;
 	}
 
-	else if (command == 0x02)
+	else if (command_state == 0x02)
 	{
 		command_value = 0U;
 		command_length = 0x01U;
 		command_payload_1_max = 0x01U;
 		command_payload_1_min = 0x00U;
-		command_state = COMMAND_SET_LED;
 	}
 
-	else if (command == 0x03)
+	else if (command_state == 0x03)
 	{
 		command_value = 0U;
 		command_length = 0x00U;
 		command_payload_1_max = 0U;
 		command_payload_1_min = 0U;
-		command_state = COMMAND_GET_LED;
 	}
 
-	else if (command == 0x04)
+	else if (command_state == 0x04)
 	{
 		command_value = 0U;
 		command_length = 0x00U;
 		command_payload_1_max = 0U;
 		command_payload_1_min = 0U;
-		command_state = COMMAND_GET_ADC;
 	}
 
 }
@@ -364,14 +412,18 @@ void FailHandler(void)
 	{
 		uart_send("TIMEOUT_ERROR\r\n");
 	}
-
-	resetState();
 }
 
 bool WorkflowManager(void)
 {
 	bool workflow_pass = true;
+	bool response = false;
 	uint8_t checksum = 0U;
+
+	command_length = 0U;
+	command_payload_1_max = 0U;
+	command_payload_1_min = 0U;
+	command_state = COMMAND_WAIT;
 
 	if (rx_length > PAYLOAD_SIZE)
 	{
@@ -382,7 +434,7 @@ bool WorkflowManager(void)
 
 	if (workflow_pass)
 	{
-		checksum = calc_checksum();
+		checksum = calc_checksum(response);
 
 		if (checksum != rx_checksum)
 		{
@@ -392,46 +444,53 @@ bool WorkflowManager(void)
 		}
 	}
 
-	command_details();
-
-	if(workflow_pass && command == 0U)
+	for (uint8_t i = 0; i < commands_size; i++)
 	{
-		parser_state = PARSER_ERROR;
-		error_state = INVALID_COMMAND_ERROR;
-		workflow_pass = false;
-	}
-
-	if(workflow_pass && rx_length != command_length)
-	{
-		parser_state = PARSER_ERROR;
-		error_state = INVALID_LENGTH_ERROR;
-		workflow_pass = false;
-	}
-
-	if(workflow_pass)
-	{
-		for (uint8_t i = 0; i < rx_length; i++)
+		if (rx_command == available_commands[i])
 		{
-			if (rx_payload[i] < command_payload_1_min || rx_payload[i] > command_payload_1_max)
-			{
-				parser_state = PARSER_ERROR;
-				error_state = INVALID_PAYLOAD_ERROR;
-				workflow_pass = false;
-			}
+			command_state = rx_command;
 		}
 	}
 
-	if(workflow_pass)
+	if (command_state == 0x01)
 	{
-		if(command_state == COMMAND_GET_ADC)
+		command_value = 0U;
+		command_length = 0x00U;
+		command_payload_1_max = 0x01U;
+		command_payload_1_min = 0x00U;
+		workflow_pass = command_details_check();
+
+		if(workflow_pass)
 		{
-			workflow_pass = adc_value_check();
-			if (workflow_pass != true)
-			{
-				parser_state = PARSER_ERROR;
-				error_state = ADC_READ_ERROR;
-			}
+			command_response = 0x01U;
 		}
+	}
+
+	else if (command_state == 0x02)
+	{
+		command_value = 0U;
+		command_length = 0x01U;
+		command_payload_1_max = 0x01U;
+		command_payload_1_min = 0x00U;
+		workflow_pass = command_details_check();
+	}
+
+	else if (command_state == 0x03)
+	{
+		command_value = 0U;
+		command_length = 0x00U;
+		command_payload_1_max = 0U;
+		command_payload_1_min = 0U;
+		workflow_pass = command_details_check();
+	}
+
+	else if (command_state == 0x04)
+	{
+		command_value = 0U;
+		command_length = 0x00U;
+		command_payload_1_max = 0U;
+		command_payload_1_min = 0U;
+		workflow_pass = command_details_check();
 	}
 
 	return workflow_pass;
@@ -503,6 +562,20 @@ void parserDataPipeline(uint8_t byte)
 		}
 }
 
+void send_packet()
+{
+	bool response = true;
+	uint8_t response_checsum = calc_checksum(response);
+	uart_send_hex(0xAA);
+	uart_send_hex(command_state);
+	uart_send_hex(error_state);
+	uart_send_hex(command_response);
+	uart_send_hex(response_checsum);
+
+	resetState();
+
+}
+
 void resetState(void)
 {
 	rx_command = 0U;
@@ -514,7 +587,6 @@ void resetState(void)
 	}
 	rx_checksum = 0U;
 
-	command = 0U;
 	command_value = 0U;
 	command_length = 0U;
 	command_payload_1_max = 0U;
@@ -585,7 +657,7 @@ bool start_msg_is = false;
 
 	  if (start_msg_is)
 	   {
-	 	  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
+	 	  uart_send("\r\n\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
 		  start_msg_is = false;
 	   }
 
@@ -612,6 +684,7 @@ bool start_msg_is = false;
 			  {
 				  FailHandler();
 			  }
+			  send_packet();
 			  start_msg_is = true;
 		  }
 
