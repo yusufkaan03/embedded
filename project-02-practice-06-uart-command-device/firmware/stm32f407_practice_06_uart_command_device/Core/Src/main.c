@@ -72,6 +72,10 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+/* If you want to run in debug mode, set the OPERATING_MODE value to 1; if you want to run in normal mode, set the OPERATING_MODE value to 0. */
+
+#define OPERATING_MODE	0
+
 #define PAYLOAD_SIZE 	3U
 #define ADC_SUM_COUNT 	10U
 #define TIMEOUT_TIME 	5000U
@@ -517,8 +521,6 @@ bool WorkflowManager(void)
 		}
 	}
 
-	send_packet();
-
 	return workflow_pass;
 }
 
@@ -529,34 +531,49 @@ void parserDataPipeline(uint8_t byte)
 		case PARSER_WAIT_START:
 			if (byte == 0xAAU)
 			{
-				uart_send("AA\r\n");
 				parser_state = PARSER_READ_COMMAND;
-				command_msg();
-				uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
+				if(OPERATING_MODE)
+				{
+					uart_send("AA\r\n");
+					command_msg();
+					uart_send("[STATUS: AWAITING_COMMAND] Please enter a valid command:");
+				}
 				timeout_count = HAL_GetTick();
 			}
 			break;
 
 		case PARSER_READ_COMMAND:
 			rx_command = byte;
-			uart_send_hex(rx_command);
 			parser_state = PARSER_READ_LENGTH;
-			uart_send("\r\n[STATUS: AWAITING_LENGTH] Please enter the payload length (in bytes):");
+			if(OPERATING_MODE)
+			{
+				uart_send_hex(rx_command);
+				uart_send("\r\n[STATUS: AWAITING_LENGTH] Please enter the payload length (in bytes):");
+			}
 			timeout_count = HAL_GetTick();
 			break;
 
 		case PARSER_READ_LENGTH:
 			rx_length = byte;
-			uart_send_hex(rx_length);
+			if(OPERATING_MODE)
+			{
+				uart_send_hex(rx_length);
+			}
 			if (rx_length == 0x00U)
 			{
 				parser_state = PARSER_READ_CALC_CHECKSUM;
-				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
+				if(OPERATING_MODE)
+				{
+					uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
+				}
 			}
 			else if(rx_length <= PAYLOAD_SIZE)
 			{
 				parser_state = PARSER_READ_PAYLOAD;
-				uart_send("\r\n[STATUS: AWAITING_PAYLOAD] Please enter the hex data payload:");
+				if(OPERATING_MODE)
+				{
+					uart_send("\r\n[STATUS: AWAITING_PAYLOAD] Please enter the hex data payload:");
+				}
 			}
 			else
 			{
@@ -567,19 +584,28 @@ void parserDataPipeline(uint8_t byte)
 
 		case PARSER_READ_PAYLOAD:
 			payload_recorder(byte);
-			uart_send_hex(byte);
+			if(OPERATING_MODE)
+			{
+				uart_send_hex(byte);
+			}
 			if(payload_index >= rx_length)
 			{
-				uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
 				parser_state = PARSER_READ_CALC_CHECKSUM;
+				if(OPERATING_MODE)
+				{
+					uart_send("\r\n[STATUS: AWAITING_CHECKSUM] Please enter the checksum value for verification:");
+				}
 			}
 			timeout_count = HAL_GetTick();
 			break;
 
 		case PARSER_READ_CALC_CHECKSUM:
 			rx_checksum = byte;
-			uart_send_hex(rx_checksum);
-			uart_send("\r\n");
+			if(OPERATING_MODE)
+			{
+				uart_send_hex(rx_checksum);
+				uart_send("\r\n");
+			}
 			parser_state = PARSER_HANDLER;
 			break;
 
@@ -690,11 +716,14 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  char boot_msg[] = "/----BOOT_OK----/\r\n";
-  char boot_msg_head[] = "\r\n\r\n/---------------/\r\n";
-  uart_send(boot_msg_head);
-  uart_send(boot_msg);
-  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
+  if(OPERATING_MODE)
+  {
+	  char boot_msg[] = "/----BOOT_OK----/\r\n";
+	  char boot_msg_head[] = "\r\n\r\n/---------------/\r\n";
+	  uart_send(boot_msg_head);
+	  uart_send(boot_msg);
+	  uart_send("\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
+  }
 
   if (HAL_UART_Receive_IT(&huart2, &rx_byte, 1U) != HAL_OK)
   {
@@ -714,18 +743,29 @@ bool start_msg_is = false;
 
     /* USER CODE BEGIN 3 */
 
-	  if (start_msg_is)
-	   {
-	 	  uart_send("\r\n\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
-		  start_msg_is = false;
-	   }
+	  if(OPERATING_MODE)
+	  {
+		  if (start_msg_is)
+		  {
+			  uart_send("\r\n\r\n[STATUS: AWAITING_START] Please enter 'AA' to initiate the packet:");
+			  start_msg_is = false;
+		  }
+	  }
 
 	  if(parser_state != PARSER_WAIT_START && (HAL_GetTick() - timeout_count) >= TIMEOUT_TIME)
 	  {
 		  parser_state = PARSER_ERROR;
 		  error_state = TIMEOUT_ERROR;
-		  send_packet();
-		  FailHandler();
+
+		  if(OPERATING_MODE)
+		  {
+			  FailHandler();
+		  }
+		  else
+		  {
+			  send_packet();
+			  resetState();
+		  }
 		  start_msg_is = true;
 	  }
 
@@ -737,14 +777,24 @@ bool start_msg_is = false;
 		  {
 			  success = WorkflowManager();
 
-			  if (success == true)
+
+			  if(OPERATING_MODE)
 			  {
-				  SuccessHandler();
-				  resetState();
+				  if (success == true)
+				  {
+					  SuccessHandler();
+					  resetState();
+				  }
+				  else
+				  {
+					  FailHandler();
+					  resetState();
+				  }
+
 			  }
 			  else
 			  {
-				  FailHandler();
+				  send_packet();
 				  resetState();
 			  }
 			  start_msg_is = true;
