@@ -54,7 +54,8 @@ typedef enum
 	INVALID_PAYLOAD_ERROR	= 0x04,
 	CHECKSUM_ERROR			= 0x05,
 	ADC_READ_ERROR			= 0x06,
-	TIMEOUT_ERROR			= 0x07
+	TIMEOUT_ERROR			= 0x07,
+	SET_LED_WRITE_ERROR		= 0x08
 }ErrorMode_t;
 
 typedef enum
@@ -98,10 +99,14 @@ static uint8_t payload_index = 0U;
 static uint8_t rx_checksum = 0U;
 
 static uint8_t available_commands[] = {0x01U, 0x02U, 0x03U, 0x04U};
-static uint16_t command_value = 0U;
 static uint8_t command_length = 0U;
 static uint8_t command_payload_1_max = 0U;
-static uint8_t command_payload_1_min = 0U;;
+static uint8_t command_payload_1_min = 0U;
+static uint16_t check = 0U;
+
+static uint8_t command_value[PAYLOAD_SIZE];
+
+static uint8_t response_length = 0U;
 
 const uint8_t commands_size = (sizeof(available_commands) / sizeof(available_commands[0]));
 
@@ -117,6 +122,7 @@ void SystemClock_Config(void);
 
 void uart_send(char* text);
 void resetState(void);
+void send_packet(void);
 
 /* USER CODE END PFP */
 
@@ -155,30 +161,27 @@ void uart_send_hex(uint8_t byte)
 	HAL_UART_Transmit(&huart2, (uint8_t* )send_msg, len, HAL_MAX_DELAY);
 }
 
+void uart_hex(uint8_t hex[], uint8_t size)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t* )hex, size, HAL_MAX_DELAY);
+}
+
 void payload_recorder(uint8_t byte)
 {
 	rx_payload[payload_index] = byte;
 	payload_index++;
 }
 
-uint8_t calc_checksum(bool response)
+uint8_t calc_checksum()
 {
 	uint8_t sum = 0U;
 
-	if (response)
-	{
-		sum = command_state ^ error_state;
-		sum ^= command_value;
-
-	}
-	else
-	{
 		sum = rx_command ^ rx_length;
 		for(uint8_t i = 0; i < rx_length; i++)
 		{
 			sum = sum ^ rx_payload[i];
 		}
-	}
+
 
 	return sum;
 }
@@ -203,7 +206,12 @@ bool adc_value_check(void)
 
 	if (sum_count != 0)
 	{
-		command_value = (uint16_t)(raw_sum/sum_count);
+		uint16_t raw = (uint16_t)(raw_sum/(uint32_t)sum_count);
+		check = raw;
+
+		command_value[0] = (uint8_t)((0xFF00 & raw) >> 8);
+		command_value[1] = (uint8_t)(0x00FF & raw);
+
 		return true;
 	}
 
@@ -262,8 +270,8 @@ void SuccessHandler(void)
 
 	case COMMAND_GET_LED:
 		uart_send("LED_STATUS_");
-		command_value = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
-		if (command_value)
+		command_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		if (command_value[0])
 		{
 			uart_send("ON\r\n");
 		}
@@ -275,7 +283,7 @@ void SuccessHandler(void)
 
 	case COMMAND_GET_ADC:
 		uart_send("ADC_RAW:");
-		uart_send_uint16(command_value);
+		uart_send_uint16(check);
 		uart_send("\r\n");
 		break;
 
@@ -304,19 +312,6 @@ bool command_details_check(void)
 				parser_state = PARSER_ERROR;
 				error_state = INVALID_PAYLOAD_ERROR;
 				pass = false;
-			}
-		}
-	}
-
-	if(pass)
-	{
-		if(command_state == COMMAND_GET_ADC)
-		{
-			pass = adc_value_check();
-			if (pass != true)
-			{
-				parser_state = PARSER_ERROR;
-				error_state = ADC_READ_ERROR;
 			}
 		}
 	}
@@ -355,17 +350,27 @@ void FailHandler(void)
 	{
 		uart_send("TIMEOUT_ERROR\r\n");
 	}
+	else if (parser_state == PARSER_ERROR && error_state == SET_LED_WRITE_ERROR)
+	{
+		uart_send("SET_LED_WRITE_ERROR\r\n");
+	}
+	else if (parser_state == PARSER_ERROR && error_state == ADC_READ_ERROR)
+	{
+		uart_send("ADC_READ_ERROR\r\n");
+	}
+
+	resetState();
 }
 
 bool WorkflowManager(void)
 {
 	bool workflow_pass = true;
-	bool response = false;
 	uint8_t checksum = 0U;
 
 	command_length = 0U;
 	command_payload_1_max = 0U;
 	command_payload_1_min = 0U;
+	response_length = 0U;
 	command_state = COMMAND_WAIT;
 
 	if (rx_length > PAYLOAD_SIZE)
@@ -377,7 +382,7 @@ bool WorkflowManager(void)
 
 	if (workflow_pass)
 	{
-		checksum = calc_checksum(response);
+		checksum = calc_checksum();
 
 		if (checksum != rx_checksum)
 		{
@@ -407,66 +412,112 @@ bool WorkflowManager(void)
 	{
 		if (command_state == 0x01)
 		{
-			command_value = 0U;
 			command_length = 0x00U;
 			command_payload_1_max = 0x01U;
 			command_payload_1_min = 0x00U;
+			response_length = 0x01U;
 			workflow_pass = command_details_check();
 
 			if(workflow_pass)
 			{
-				command_value = 0x01U;
+				command_value[0] = 0x01U;
+			}
+			else
+			{
+				response_length = 0x00U;
 			}
 		}
 
 		else if (command_state == 0x02)
 		{
-			command_value = 0U;
 			command_length = 0x01U;
 			command_payload_1_max = 0x01U;
 			command_payload_1_min = 0x00U;
+			response_length = 0x01U;
 			workflow_pass = command_details_check();
 			if(workflow_pass)
 			{
 				if(rx_payload[0] == 0x00)
 				{
 					HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-					command_value = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+					if (HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin) == GPIO_PIN_RESET)
+					{
+						command_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+					}
+					else
+					{
+						parser_state = PARSER_ERROR;
+						error_state = SET_LED_WRITE_ERROR;
+						response_length = 0x00U;
+						workflow_pass = false;
+					}
 				}
 				else
 				{
 					HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
-					command_value = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+					if (HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin) == GPIO_PIN_SET)
+					{
+						command_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+					}
+					else
+					{
+						parser_state = PARSER_ERROR;
+						error_state = SET_LED_WRITE_ERROR;
+						response_length = 0x00U;
+						workflow_pass = false;
+					}
 				}
+			}
+			else
+			{
+				response_length = 0x00U;
 			}
 		}
 
 		else if (command_state == 0x03)
 		{
-			command_value = 0U;
 			command_length = 0x00U;
 			command_payload_1_max = 0U;
 			command_payload_1_min = 0U;
+			response_length = 0x01U;
 			workflow_pass = command_details_check();
-			command_value = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			if(workflow_pass)
+			{
+				command_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			}
+			else
+			{
+				response_length = 0x00U;
+				workflow_pass = false;
+			}
+
 		}
 
 		else if (command_state == 0x04)
 		{
-			command_value = 0U;
 			command_length = 0x00U;
 			command_payload_1_max = 0U;
 			command_payload_1_min = 0U;
+			response_length = 0x02U;
 			workflow_pass = command_details_check();
-			workflow_pass = adc_value_check();
-			if (workflow_pass != true)
+			if(workflow_pass)
 			{
-				parser_state = PARSER_ERROR;
-				error_state = ADC_READ_ERROR;
-				command_value = 0x00;
+				workflow_pass = adc_value_check();
+				if(workflow_pass == false)
+				{
+					parser_state = PARSER_ERROR;
+					error_state = ADC_READ_ERROR;
+					response_length = 0x00U;
+				}
+			}
+			else
+			{
+				response_length = 0x00U;
 			}
 		}
 	}
+
+	send_packet();
 
 	return workflow_pass;
 }
@@ -537,18 +588,47 @@ void parserDataPipeline(uint8_t byte)
 		}
 }
 
-void send_packet()
+uint8_t calc_checksum_response(uint8_t data[], uint8_t size)
 {
-	bool response = true;
-	uint8_t response_checsum = calc_checksum(response);
-	uart_send_hex(0xAA);
-	uart_send_hex(command_state);
-	uart_send_hex(error_state);
-	uart_send_hex(command_value);
-	uart_send_hex(response_checsum);
+	uint8_t sum = 0x00U;
 
-	resetState();
+	for (uint8_t i = 1; i < size; i++)
+	{
+		sum ^= data[i];
+	}
 
+	return sum;
+}
+
+void send_packet(void)
+{
+	uint8_t response_pkt[10];
+	uint8_t response_index = 0U;
+
+	if(error_state != NO_ERROR)
+	{
+		response_length = 0x00U;
+	}
+
+	response_pkt[response_index] = 0xAA;
+	response_index++;
+	response_pkt[response_index] = rx_command;
+	response_index++;
+	response_pkt[response_index] = error_state;
+	response_index++;
+	response_pkt[response_index] = response_length;
+	response_index++;
+
+	for(uint8_t i = 0; i < response_length; i++)
+	{
+		response_pkt[response_index] = command_value[i];
+		response_index++;
+	}
+
+	response_pkt[response_index] = calc_checksum_response(response_pkt, response_index);
+	response_index++;
+
+	uart_hex(response_pkt, response_index);
 }
 
 void resetState(void)
@@ -562,10 +642,14 @@ void resetState(void)
 	}
 	rx_checksum = 0U;
 
-	command_value = 0U;
+	for(uint8_t i = 0; i < PAYLOAD_SIZE; i++)
+	{
+		command_value[i] = 0x00U;
+	}
 	command_length = 0U;
 	command_payload_1_max = 0U;
 	command_payload_1_min = 0U;
+	response_length = 0U;
 
 	parser_state = PARSER_WAIT_START;
 	error_state = NO_ERROR;
@@ -640,6 +724,7 @@ bool start_msg_is = false;
 	  {
 		  parser_state = PARSER_ERROR;
 		  error_state = TIMEOUT_ERROR;
+		  send_packet();
 		  FailHandler();
 		  start_msg_is = true;
 	  }
@@ -651,15 +736,17 @@ bool start_msg_is = false;
 		  if(parser_state == PARSER_HANDLER || parser_state == PARSER_ERROR)
 		  {
 			  success = WorkflowManager();
+
 			  if (success == true)
 			  {
 				  SuccessHandler();
+				  resetState();
 			  }
 			  else
 			  {
 				  FailHandler();
+				  resetState();
 			  }
-			  send_packet();
 			  start_msg_is = true;
 		  }
 
