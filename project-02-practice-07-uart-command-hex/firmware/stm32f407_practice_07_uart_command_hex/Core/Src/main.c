@@ -55,14 +55,14 @@ typedef enum WorkState_e
 
 typedef enum ErrorState_e
 {
-	ERROR_NO,
-	ERROR_RX_OVERFLOW,
-	ERROR_START_BYTE_FOUND,
-	ERROR_INVALID_COMMAND,
-	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW,
-	ERROR_RX_PACKET_OVERFLOW,
-	ERROR_RX_PACKET_UNDERFLOW,
-	ERROR_CHECKSUM
+	ERROR_NO							= 0x00,
+	ERROR_RX_OVERFLOW					= 0x01,
+	ERROR_START_BYTE_FOUND				= 0x02,
+	ERROR_INVALID_COMMAND				= 0x03,
+	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0x04,
+	ERROR_RX_PACKET_OVERFLOW			= 0x05,
+	ERROR_RX_PACKET_UNDERFLOW			= 0x06,
+	ERROR_CHECKSUM						= 0x07
 }ErrorState_t;
 
 /* USER CODE END PTD */
@@ -177,7 +177,7 @@ uint8_t PacketBuilder(void)
 	return packet_index;
 }
 
-void ParserPipline(uint8_t packet_lenght)
+uint8_t ParserPipline(uint8_t packet_lenght)
 {
 	uint8_t packet_index = 0U;
 	uint8_t rx_checksum = 0U;
@@ -265,14 +265,23 @@ void ParserPipline(uint8_t packet_lenght)
 			}
 		}
 	}
+
+	return packet_index;
 }
 
 void reset_init(void)
 {
 	command_state = COMMAND_WAIT;
 	parser_state = PARSER_WAIT_START;
+	error_state = ERROR_NO;
 
 	rx_command = 0U;
+	rx_length = 0U;
+
+	for(uint8_t i = 0; i < RX_PAYLOAD_SIZE; i++)
+	{
+		rx_payload[i] = 0U;
+	}
 
 	for (uint8_t i = 0; i < RX_PACKET_SIZE; i++)
 	{
@@ -316,8 +325,6 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_UART_Transmit(&huart2, &available_commands_size, 1U, HAL_MAX_DELAY);
-
   if(HAL_UART_Receive_IT(&huart2, &rx_byte, 1U) != HAL_OK)
   {
 	  Error_Handler();
@@ -330,11 +337,21 @@ int main(void)
   while (1)
   {
 	  uint8_t rx_packet_length = PacketBuilder();
+	  uint8_t find_length;
 
 	  if(error_state == ERROR_NO)
 	  {
-		  ParserPipline(rx_packet_length);
+		  find_length = ParserPipline(rx_packet_length);
 	  }
+
+	  uint8_t start_byte = 0xAAU;
+
+	  HAL_UART_Transmit(&huart2, &start_byte, 1U, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, &rx_command, 1U, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, &rx_packet_length, 1U, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, &find_length, 1U, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, &error_state, 1U, HAL_MAX_DELAY);
+
 
 	  reset_init();
     /* USER CODE END WHILE */
