@@ -56,15 +56,16 @@ typedef enum WorkState_e
 typedef enum ErrorState_e
 {
 	ERROR_NO							= 0x00,
-	ERROR_RX_OVERFLOW					= 0x01,
-	ERROR_RX_START_BYTE_FOUND			= 0x02,
-	ERROR_RX_INVALID_COMMAND			= 0x03,
-	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0x04,
-	ERROR_RX_PACKET_OVERFLOW			= 0x05,
-	ERROR_RX_PACKET_UNDERFLOW			= 0x06,
-	ERROR_RX_CHECKSUM					= 0x07,
-	ERROR_COMMAND_LENGTH_OVERFLOW		= 0x08,
-	ERROR_COMMAND_INVALID_PAYLOAD		= 0x09
+	ERROR_RX_OVERFLOW					= 0xA1,
+	ERROR_RX_START_BYTE_FOUND			= 0xA2,
+	ERROR_RX_INVALID_COMMAND			= 0xA3,
+	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0xA4,
+	ERROR_RX_PACKET_OVERFLOW			= 0xA5,
+	ERROR_RX_PACKET_UNDERFLOW			= 0xA6,
+	ERROR_RX_CHECKSUM					= 0xA7,
+	ERROR_COMMAND_LENGTH_OVERFLOW		= 0xB1,
+	ERROR_COMMAND_INVALID_PAYLOAD		= 0xB2,
+	ERROR_EXEC_VERIFICATION_FAILED		= 0xC1,
 }ErrorState_t;
 
 /* USER CODE END PTD */
@@ -76,6 +77,7 @@ typedef enum ErrorState_e
 #define RX_PACKET_TIMEOUT_TIME	5000U
 #define PAYLOAD_SIZE 			3U
 #define RESPONSE_MSG_SIZE		10U
+#define ADC_READ_COUNT			10U
 
 /* USER CODE END PD */
 
@@ -118,7 +120,7 @@ static uint8_t available_commands_size = COMMAND_COUNT;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void reset_init(bool pass);
+void reset_init(void);
 
 /* USER CODE END PFP */
 
@@ -135,6 +137,7 @@ uint8_t CalculateChecksum(uint8_t packet[], uint8_t length)
 	}
 	return sum;
 }
+
 uint8_t PacketBuilder(void)
 {
 	uint32_t start_time;
@@ -290,19 +293,15 @@ bool CommandDetailsCheck(void)
 
 		for(uint8_t i = 0U; i < rx_length; i++)
 		{
-			if(is_pass)
-			{
-				if(command_payload_min[i] <= rx_payload[i] && command_payload_max[i] >= rx_payload[i])
-				{
-					is_pass = true;
-				}
-			}
-			else
+			if(command_payload_min[i] > rx_payload[i] && command_payload_max[i] < rx_payload[i])
 			{
 				is_pass = false;
-				parser_state = PARSER_ERROR;
-				error_state = ERROR_COMMAND_INVALID_PAYLOAD;
 			}
+		}
+		if(is_pass == false)
+		{
+			parser_state = PARSER_ERROR;
+			error_state = ERROR_COMMAND_INVALID_PAYLOAD;
 		}
 	}
 	else
@@ -316,26 +315,61 @@ bool CommandDetailsCheck(void)
 void WorkflowManager(void)
 {
 	bool is_pass = false;
-	uint8_t pass = 0xFF;
 
 	switch(command_state)
 	{
 	case COMMAND_PING:
 		command_payload_length = 0x00U;
-		command_payload_max[0] = 0x01U;
-		command_payload_min[0] = 0x01U;
-		command_response_length = 0x01U;
 		is_pass = CommandDetailsCheck();
 		if (is_pass)
 		{
-			command_value[0] = 0x01;
-			pass = 0xAA;
+			command_response_length = 0x01U;
+			command_value[0] = 0x01U;
 		}
 		else
 		{
-			reset_init(is_pass);
+			command_response_length = 0x00U;
 		}
-		HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
+		break;
+
+	case COMMAND_SET_LED:
+		command_payload_length = 0x01U;
+		command_payload_max[0] = 0x01U;
+		command_payload_min[0] = 0x00U;
+		is_pass = CommandDetailsCheck();
+		if(is_pass)
+		{
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, rx_payload[0]);
+			if(HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin) == rx_payload[0])
+			{
+				command_response_length = 0x01U;
+				command_value[0] = rx_payload[0];
+			}
+			else
+			{
+				command_response_length = 0x00U;
+				parser_state = PARSER_ERROR;
+				error_state = ERROR_EXEC_VERIFICATION_FAILED;
+			}
+		}
+		else
+		{
+			command_response_length = 0x00U;
+		}
+		break;
+
+	case COMMAND_GET_LED:
+		command_payload_length = 0x00U;
+		is_pass = CommandDetailsCheck();
+		if (is_pass)
+		{
+			command_response_length = 0x01U;
+			command_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		}
+		else
+		{
+			command_response_length = 0x00U;
+		}
 		break;
 
 	default:
@@ -362,7 +396,7 @@ void SendMsgBuilder(void)
 	response_msg[msg_index] = command_response_length;
 	msg_index++;
 
-	for(uint8_t i = 0U; i < command_payload_length; i++)
+	for(uint8_t i = 0U; i < command_response_length; i++)
 	{
 		response_msg[msg_index] = command_value[i];
 		msg_index++;
@@ -376,20 +410,18 @@ void SendMsgBuilder(void)
 	HAL_UART_Transmit(&huart2, (uint8_t* )response_msg, msg_index, HAL_MAX_DELAY);
 }
 
-void reset_init(bool pass)
+void reset_init(void)
 {
-	if(pass)
-	{
-		rx_command = 0U;
+	rx_command = 0U;
 
-		error_state = ERROR_NO;
-		command_state = COMMAND_WAIT;
-		parser_state = PARSER_WAIT_START;
-		for(uint8_t i = 0; i < RESPONSE_MSG_SIZE; i++)
-		{
-			response_msg[i] = 0U;
-		}
+	error_state = ERROR_NO;
+	command_state = COMMAND_WAIT;
+	parser_state = PARSER_WAIT_START;
+	for(uint8_t i = 0; i < RESPONSE_MSG_SIZE; i++)
+	{
+		response_msg[i] = 0U;
 	}
+
 
 	rx_length = 0U;
 
@@ -451,6 +483,7 @@ int main(void)
   {
 	  Error_Handler();
   }
+  reset_init();
 
   /* USER CODE END 2 */
 
@@ -470,7 +503,7 @@ int main(void)
 	  }
 	  SendMsgBuilder();
 
-	  reset_init(true);
+	  reset_init();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
