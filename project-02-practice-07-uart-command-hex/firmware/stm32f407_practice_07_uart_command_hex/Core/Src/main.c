@@ -66,6 +66,7 @@ typedef enum ErrorState_e
 	ERROR_COMMAND_LENGTH_OVERFLOW		= 0xB1,
 	ERROR_COMMAND_INVALID_PAYLOAD		= 0xB2,
 	ERROR_EXEC_VERIFICATION_FAILED		= 0xC1,
+	ERROR_EXEC_READ_ADC_FAILED			= 0xC2
 }ErrorState_t;
 
 /* USER CODE END PTD */
@@ -78,6 +79,7 @@ typedef enum ErrorState_e
 #define PAYLOAD_SIZE 			3U
 #define RESPONSE_MSG_SIZE		10U
 #define ADC_READ_COUNT			10U
+#define ADC_READ_MIN_COUNT		3U
 
 /* USER CODE END PD */
 
@@ -138,6 +140,37 @@ uint8_t CalculateChecksum(uint8_t packet[], uint8_t length)
 	return sum;
 }
 
+bool ADCReadAvage(void)
+{
+	uint32_t sum = 0U;
+	uint8_t count = 0U;
+
+	for(uint8_t i = 0; i < ADC_READ_COUNT; i++)
+	{
+		HAL_ADC_Start(&hadc1);
+
+		if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+		{
+			sum += HAL_ADC_GetValue(&hadc1);
+			count++;
+		}
+
+		HAL_ADC_Stop(&hadc1);
+	}
+
+	if (count > ADC_READ_MIN_COUNT)
+	{
+		uint16_t raw = (uint16_t)(sum/((uint32_t)count));
+		command_value[0] = (uint8_t)(raw >> 8);
+		command_value[1] = (uint8_t)(raw);
+		return true;
+	}
+
+	else
+	{
+		return false;
+	}
+}
 uint8_t PacketBuilder(void)
 {
 	uint32_t start_time;
@@ -371,6 +404,30 @@ void WorkflowManager(void)
 			command_response_length = 0x00U;
 		}
 		break;
+
+	case COMMAND_GET_ADC:
+		command_payload_length = 0x00U;
+		is_pass = CommandDetailsCheck();
+		if(is_pass)
+		{
+			is_pass = ADCReadAvage();
+			if(is_pass == false)
+			{
+				command_response_length = 0x00U;
+				parser_state = PARSER_ERROR;
+				error_state = ERROR_EXEC_READ_ADC_FAILED;
+			}
+			else
+			{
+				command_response_length = 0x02U;
+			}
+		}
+		else
+		{
+			command_response_length = 0x00U;
+		}
+		break;
+
 
 	default:
 		break;
