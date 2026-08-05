@@ -57,12 +57,14 @@ typedef enum ErrorState_e
 {
 	ERROR_NO							= 0x00,
 	ERROR_RX_OVERFLOW					= 0x01,
-	ERROR_START_BYTE_FOUND				= 0x02,
-	ERROR_INVALID_COMMAND				= 0x03,
+	ERROR_RX_START_BYTE_FOUND			= 0x02,
+	ERROR_RX_INVALID_COMMAND			= 0x03,
 	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0x04,
 	ERROR_RX_PACKET_OVERFLOW			= 0x05,
 	ERROR_RX_PACKET_UNDERFLOW			= 0x06,
-	ERROR_CHECKSUM						= 0x07
+	ERROR_RX_CHECKSUM					= 0x07,
+	ERROR_COMMAND_LENGTH_OVERFLOW		= 0x08,
+	ERROR_COMMAND_INVALID_PAYLOAD		= 0x09
 }ErrorState_t;
 
 /* USER CODE END PTD */
@@ -72,7 +74,8 @@ typedef enum ErrorState_e
 
 #define RX_PACKET_SIZE 			8U
 #define RX_PACKET_TIMEOUT_TIME	5000U
-#define RX_PAYLOAD_SIZE 		3U
+#define PAYLOAD_SIZE 			3U
+#define RESPONSE_MSG_SIZE		10U
 
 /* USER CODE END PD */
 
@@ -95,7 +98,16 @@ static bool 	rx_byte_ready = false;
 static uint8_t rx_packet[RX_PACKET_SIZE];
 static uint8_t rx_command = 0U;
 static uint8_t rx_length = 0U;
-static uint8_t rx_payload[RX_PAYLOAD_SIZE];
+static uint8_t rx_payload[PAYLOAD_SIZE];
+
+static uint8_t command_payload_length = 0U;
+static uint8_t command_payload_min[PAYLOAD_SIZE];
+static uint8_t command_payload_max[PAYLOAD_SIZE];
+static uint8_t command_value[PAYLOAD_SIZE];
+
+static uint8_t response_msg[RESPONSE_MSG_SIZE];
+static uint8_t command_response_length = 0U;
+
 
 static uint8_t available_commands_size = COMMAND_COUNT;
 
@@ -105,6 +117,8 @@ static uint8_t available_commands_size = COMMAND_COUNT;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
+void reset_init(bool pass);
 
 /* USER CODE END PFP */
 
@@ -173,11 +187,10 @@ uint8_t PacketBuilder(void)
 			}
 		}
 	}
-
 	return packet_index;
 }
 
-uint8_t ParserPipline(uint8_t packet_lenght)
+void ParserPipline(uint8_t packet_lenght)
 {
 	uint8_t packet_index = 0U;
 	uint8_t rx_checksum = 0U;
@@ -191,7 +204,7 @@ uint8_t ParserPipline(uint8_t packet_lenght)
 	{
 		/* Start byte found error. */
 		parser_state = PARSER_ERROR;
-		error_state = ERROR_START_BYTE_FOUND;
+		error_state = ERROR_RX_START_BYTE_FOUND;
 	}
 
 
@@ -211,14 +224,14 @@ uint8_t ParserPipline(uint8_t packet_lenght)
 		{
 			rx_command = rx_packet[packet_index];
 			parser_state = PARSER_ERROR;
-			error_state = ERROR_INVALID_COMMAND;
+			error_state = ERROR_RX_INVALID_COMMAND;
 		}
 
 		packet_index++;
 
 		if(error_state == ERROR_NO)
 		{
-			if(rx_packet[packet_index] > RX_PAYLOAD_SIZE)
+			if(rx_packet[packet_index] > PAYLOAD_SIZE)
 			{
 				parser_state = PARSER_ERROR;
 				error_state = ERROR_RX_PAYLOAD_LENGTH_OVERFLOW;
@@ -245,7 +258,7 @@ uint8_t ParserPipline(uint8_t packet_lenght)
 					if (rx_packet[packet_index] != rx_checksum)
 					{
 						parser_state = PARSER_ERROR;
-						error_state = ERROR_CHECKSUM;
+						error_state = ERROR_RX_CHECKSUM;
 					}
 
 				}
@@ -265,22 +278,131 @@ uint8_t ParserPipline(uint8_t packet_lenght)
 			}
 		}
 	}
-
-	return packet_index;
 }
 
-void reset_init(void)
+bool CommandDetailsCheck(void)
 {
-	command_state = COMMAND_WAIT;
-	parser_state = PARSER_WAIT_START;
-	error_state = ERROR_NO;
+	bool is_pass = false;
 
-	rx_command = 0U;
+	if (command_payload_length == rx_length)
+	{
+		is_pass = true;
+
+		for(uint8_t i = 0U; i < rx_length; i++)
+		{
+			if(is_pass)
+			{
+				if(command_payload_min[i] <= rx_payload[i] && command_payload_max[i] >= rx_payload[i])
+				{
+					is_pass = true;
+				}
+			}
+			else
+			{
+				is_pass = false;
+				parser_state = PARSER_ERROR;
+				error_state = ERROR_COMMAND_INVALID_PAYLOAD;
+			}
+		}
+	}
+	else
+	{
+		parser_state = PARSER_ERROR;
+		error_state = ERROR_COMMAND_LENGTH_OVERFLOW;
+	}
+	return is_pass;
+}
+
+void WorkflowManager(void)
+{
+	bool is_pass = false;
+	uint8_t pass = 0xFF;
+
+	switch(command_state)
+	{
+	case COMMAND_PING:
+		command_payload_length = 0x00U;
+		command_payload_max[0] = 0x01U;
+		command_payload_min[0] = 0x01U;
+		command_response_length = 0x01U;
+		is_pass = CommandDetailsCheck();
+		if (is_pass)
+		{
+			command_value[0] = 0x01;
+			pass = 0xAA;
+		}
+		else
+		{
+			reset_init(is_pass);
+		}
+		HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
+		break;
+
+	default:
+		break;
+
+	}
+}
+
+void SendMsgBuilder(void)
+{
+	uint8_t start_byte = 0xAAU;
+	uint8_t msg_index = 0U;
+	uint8_t checksum = 0U;
+
+	response_msg[msg_index] = start_byte;
+	msg_index++;
+
+	response_msg[msg_index] = rx_command;
+	msg_index++;
+
+	response_msg[msg_index] = error_state;
+	msg_index++;
+
+	response_msg[msg_index] = command_response_length;
+	msg_index++;
+
+	for(uint8_t i = 0U; i < command_payload_length; i++)
+	{
+		response_msg[msg_index] = command_value[i];
+		msg_index++;
+	}
+
+	checksum = CalculateChecksum(response_msg, msg_index);
+
+	response_msg[msg_index] = checksum;
+	msg_index++;
+
+	HAL_UART_Transmit(&huart2, (uint8_t* )response_msg, msg_index, HAL_MAX_DELAY);
+}
+
+void reset_init(bool pass)
+{
+	if(pass)
+	{
+		rx_command = 0U;
+
+		error_state = ERROR_NO;
+		command_state = COMMAND_WAIT;
+		parser_state = PARSER_WAIT_START;
+		for(uint8_t i = 0; i < RESPONSE_MSG_SIZE; i++)
+		{
+			response_msg[i] = 0U;
+		}
+	}
+
 	rx_length = 0U;
 
-	for(uint8_t i = 0; i < RX_PAYLOAD_SIZE; i++)
+	command_payload_length = 0U;
+
+	command_response_length = 0U;
+
+	for(uint8_t i = 0; i < PAYLOAD_SIZE; i++)
 	{
 		rx_payload[i] = 0U;
+		command_payload_max[i] = 0U;
+		command_payload_min[i] = 0U;
+		command_value[i] = 0U;
 	}
 
 	for (uint8_t i = 0; i < RX_PACKET_SIZE; i++)
@@ -337,23 +459,18 @@ int main(void)
   while (1)
   {
 	  uint8_t rx_packet_length = PacketBuilder();
-	  uint8_t find_length;
 
 	  if(error_state == ERROR_NO)
 	  {
-		  find_length = ParserPipline(rx_packet_length);
+		  ParserPipline(rx_packet_length);
+		  if(error_state == ERROR_NO)
+		  {
+			  WorkflowManager();
+		  }
 	  }
+	  SendMsgBuilder();
 
-	  uint8_t start_byte = 0xAAU;
-
-	  HAL_UART_Transmit(&huart2, &start_byte, 1U, HAL_MAX_DELAY);
-	  HAL_UART_Transmit(&huart2, &rx_command, 1U, HAL_MAX_DELAY);
-	  HAL_UART_Transmit(&huart2, &rx_packet_length, 1U, HAL_MAX_DELAY);
-	  HAL_UART_Transmit(&huart2, &find_length, 1U, HAL_MAX_DELAY);
-	  HAL_UART_Transmit(&huart2, &error_state, 1U, HAL_MAX_DELAY);
-
-
-	  reset_init();
+	  reset_init(true);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
