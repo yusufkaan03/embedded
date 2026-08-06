@@ -57,13 +57,13 @@ typedef enum ErrorState_e
 {
 	ERROR_NO							= 0x00,
 	ERROR_RX_OVERFLOW					= 0xA1,
-	ERROR_RX_START_BYTE_FOUND			= 0xA2,
+	ERROR_RX_START_BYTE_NOT_FOUND		= 0xA2,
 	ERROR_RX_INVALID_COMMAND			= 0xA3,
 	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0xA4,
 	ERROR_RX_PACKET_OVERFLOW			= 0xA5,
 	ERROR_RX_PACKET_UNDERFLOW			= 0xA6,
 	ERROR_RX_CHECKSUM					= 0xA7,
-	ERROR_COMMAND_LENGTH_OVERFLOW		= 0xB1,
+	ERROR_COMMAND_INVALID_LENGTH		= 0xB1,
 	ERROR_COMMAND_INVALID_PAYLOAD		= 0xB2,
 	ERROR_EXEC_VERIFICATION_FAILED		= 0xC1,
 	ERROR_EXEC_READ_ADC_FAILED			= 0xC2
@@ -96,8 +96,8 @@ static CommandMode_t 	command_state = COMMAND_WAIT;
 static WorkState_t 		parser_state = PARSER_WAIT_START;
 static ErrorState_t 	error_state = ERROR_NO;
 
-static uint8_t	rx_byte = 0U;
-static bool 	rx_byte_ready = false;
+static uint8_t rx_byte = 0U;
+static volatile bool rx_byte_ready = false;
 
 static uint8_t rx_packet[RX_PACKET_SIZE];
 static uint8_t rx_command = 0U;
@@ -122,7 +122,7 @@ static uint8_t available_commands_size = COMMAND_COUNT;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void reset_init(void);
+void ResetProtocolState(void);
 
 /* USER CODE END PFP */
 
@@ -140,7 +140,7 @@ uint8_t CalculateChecksum(uint8_t packet[], uint8_t length)
 	return sum;
 }
 
-bool ADCReadAvage(void)
+bool ADCReadAverage(void)
 {
 	uint32_t sum = 0U;
 	uint8_t count = 0U;
@@ -158,7 +158,7 @@ bool ADCReadAvage(void)
 		HAL_ADC_Stop(&hadc1);
 	}
 
-	if (count > ADC_READ_MIN_COUNT)
+	if (count >= ADC_READ_MIN_COUNT)
 	{
 		uint16_t raw = (uint16_t)(sum/((uint32_t)count));
 		command_value[0] = (uint8_t)(raw >> 8);
@@ -226,7 +226,12 @@ uint8_t PacketBuilder(void)
 	return packet_index;
 }
 
-void ParserPipline(uint8_t packet_lenght)
+void WaitPacket(void)
+{
+
+}
+
+void ParserPipeline(uint8_t packet_length)
 {
 	uint8_t packet_index = 0U;
 	uint8_t rx_checksum = 0U;
@@ -240,7 +245,7 @@ void ParserPipline(uint8_t packet_lenght)
 	{
 		/* Start byte found error. */
 		parser_state = PARSER_ERROR;
-		error_state = ERROR_RX_START_BYTE_FOUND;
+		error_state = ERROR_RX_START_BYTE_NOT_FOUND;
 	}
 
 
@@ -248,8 +253,9 @@ void ParserPipline(uint8_t packet_lenght)
 	{
 		if (rx_packet[packet_index] == COMMAND_WAIT)
 		{
-			command_state = rx_packet[packet_index];
 			rx_command = rx_packet[packet_index];
+			parser_state = PARSER_ERROR;
+			error_state = ERROR_RX_INVALID_COMMAND;
 		}
 		else if (rx_packet[packet_index] < available_commands_size)
 		{
@@ -287,7 +293,7 @@ void ParserPipline(uint8_t packet_lenght)
 					packet_index++;
 				}
 
-				if(packet_lenght == packet_index + 1)
+				if(packet_length == packet_index + 1)
 				{
 					rx_checksum = CalculateChecksum(rx_packet, packet_index);
 
@@ -298,7 +304,7 @@ void ParserPipline(uint8_t packet_lenght)
 					}
 
 				}
-				else if(packet_lenght > packet_index + 1)
+				else if(packet_length > packet_index + 1)
 				{
 					/* Packet length overflow  */
 					parser_state = PARSER_ERROR;
@@ -326,9 +332,12 @@ bool CommandDetailsCheck(void)
 
 		for(uint8_t i = 0U; i < rx_length; i++)
 		{
-			if(command_payload_min[i] > rx_payload[i] && command_payload_max[i] < rx_payload[i])
+			if(is_pass)
 			{
-				is_pass = false;
+				if(command_payload_min[i] > rx_payload[i] || command_payload_max[i] < rx_payload[i])
+				{
+					is_pass = false;
+				}
 			}
 		}
 		if(is_pass == false)
@@ -340,7 +349,7 @@ bool CommandDetailsCheck(void)
 	else
 	{
 		parser_state = PARSER_ERROR;
-		error_state = ERROR_COMMAND_LENGTH_OVERFLOW;
+		error_state = ERROR_COMMAND_INVALID_LENGTH;
 	}
 	return is_pass;
 }
@@ -410,7 +419,7 @@ void WorkflowManager(void)
 		is_pass = CommandDetailsCheck();
 		if(is_pass)
 		{
-			is_pass = ADCReadAvage();
+			is_pass = ADCReadAverage();
 			if(is_pass == false)
 			{
 				command_response_length = 0x00U;
@@ -450,6 +459,11 @@ void SendMsgBuilder(void)
 	response_msg[msg_index] = error_state;
 	msg_index++;
 
+	if(error_state != ERROR_NO)
+	{
+		command_response_length = 0x00U;
+	}
+
 	response_msg[msg_index] = command_response_length;
 	msg_index++;
 
@@ -467,7 +481,7 @@ void SendMsgBuilder(void)
 	HAL_UART_Transmit(&huart2, (uint8_t* )response_msg, msg_index, HAL_MAX_DELAY);
 }
 
-void reset_init(void)
+void ResetProtocolState(void)
 {
 	rx_command = 0U;
 
@@ -540,7 +554,7 @@ int main(void)
   {
 	  Error_Handler();
   }
-  reset_init();
+  ResetProtocolState();
 
   /* USER CODE END 2 */
 
@@ -552,7 +566,7 @@ int main(void)
 
 	  if(error_state == ERROR_NO)
 	  {
-		  ParserPipline(rx_packet_length);
+		  ParserPipeline(rx_packet_length);
 		  if(error_state == ERROR_NO)
 		  {
 			  WorkflowManager();
@@ -560,7 +574,7 @@ int main(void)
 	  }
 	  SendMsgBuilder();
 
-	  reset_init();
+	  ResetProtocolState();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -618,7 +632,7 @@ void SystemClock_Config(void)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 {
-	if(huart->Instance)
+	if(huart->Instance  == USART2)
 	{
 		rx_byte_ready = true;
 	}
