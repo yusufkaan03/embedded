@@ -58,6 +58,9 @@ typedef enum ErrorState_e
 	ERROR_RX_TIMEOUT					= 0xA0,
 	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0xA1,
 	ERROR_RX_START_BYTE_NOT_FOUND		= 0xA2,
+	ERROR_RX_INVALID_COMMAND			= 0xA3,
+	ERROR_RX_CHECKSUM					= 0xA4,
+	ERROR_RX_INCONSISTENCY				= 0xA5,
 
 }ErrorState_t;
 
@@ -69,7 +72,7 @@ typedef enum ErrorState_e
 #define UART_BUFFER_RING_SIZE	50U
 #define RX_PACKET_SIZE			8U
 #define TIMEOUT_TIME			5000U
-#define PAYLOAD_DATA_LENGTH		3U
+#define PAYLOAD_DATA_SIZE		3U
 
 /* USER CODE END PD */
 
@@ -92,6 +95,10 @@ static uint8_t buffer_read_index = 0U;
 static uint8_t rx_byte = 0U;
 
 static uint8_t rx_packet[RX_PACKET_SIZE];
+static uint8_t rx_command = 0U;
+static uint8_t rx_payload_length = 0U;
+static uint8_t rx_payload[PAYLOAD_DATA_SIZE];
+static uint8_t rx_checsum = 0U;
 
 /* USER CODE END PV */
 
@@ -115,6 +122,15 @@ void ResetProtocolState(void)
 		rx_packet[i] = 0U;
 	}
 
+	rx_command = 0U;
+	rx_payload_length = 0U;
+	rx_checsum = 0U;
+
+	for(uint8_t i = 0; i < PAYLOAD_DATA_SIZE; i++)
+	{
+		rx_payload[i] = 0U;
+	}
+
 }
 
 void ResetIndex(void)
@@ -123,6 +139,18 @@ void ResetIndex(void)
 	{
 		buffer_read_index = 0U;
 	}
+}
+
+uint8_t CalculateChecksum(uint8_t data[], uint8_t length)
+{
+	uint8_t sum = 0U;
+
+	for(uint8_t i = 1; i < length; i++)
+	{
+		sum ^= data[i];
+	}
+
+	return sum;
 }
 
 uint8_t ProcessBuffer(void)
@@ -181,7 +209,7 @@ uint8_t ProcessBuffer(void)
 			{
 				pass = 0x15;
 				HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-				if(rx_packet[2] <= PAYLOAD_DATA_LENGTH)
+				if(rx_packet[2] <= PAYLOAD_DATA_SIZE)
 				{
 					pass = 0x16;
 					HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
@@ -218,12 +246,12 @@ uint8_t ProcessBuffer(void)
 
 	return packet_length;
 
-
 }
 
 void ParserPipeline(uint8_t length)
 {
 	uint8_t packet_index = 0U;
+	uint8_t checksum = 0U;
 
 	if(rx_packet[packet_index] != 0xAA)
 	{
@@ -233,11 +261,54 @@ void ParserPipeline(uint8_t length)
 
 	packet_index++;
 
-	for(uint8_t i = 0; i < COMMAND_COUNT; i++)
+	if(error_state == ERROR_NO)
 	{
-		if(rx_packet[i] == CommandMode_e)
+		if(rx_packet[packet_index] == 0x00 || rx_packet[packet_index] >= COMMAND_COUNT)
 		{
+			rx_command = rx_packet[packet_index];
+			parser_state = PARSER_ERROR;
+			error_state = ERROR_RX_INVALID_COMMAND;
+		}
 
+		else
+		{
+			rx_command = rx_packet[packet_index];
+			command_state = rx_packet[packet_index];
+
+			packet_index++;
+
+			rx_payload_length = rx_packet[packet_index];
+
+			packet_index++;
+
+			for(uint8_t i = 0; i < rx_payload_length; i++)
+			{
+				rx_payload[i] = rx_packet[packet_index];
+				packet_index++;
+			}
+
+			checksum = CalculateChecksum(rx_payload, packet_index);
+
+			if(checksum == rx_packet[packet_index])
+			{
+				rx_checsum = rx_packet[packet_index];
+				packet_index++;
+
+				if(packet_index == length)
+				{
+					parser_state = PARSER_APPLICATION;
+				}
+				else
+				{
+					parser_state = PARSER_ERROR;
+					error_state = ERROR_RX_INCONSISTENCY;
+				}
+			}
+			else
+			{
+				parser_state = PARSER_ERROR;
+				error_state = ERROR_RX_CHECKSUM;
+			}
 		}
 	}
 }
@@ -294,7 +365,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  switch(parser_state)
+	  /*switch(parser_state)
 	  {
 	  case PARSER_WAIT_START:
 		  pass = 0x21;
@@ -320,6 +391,21 @@ int main(void)
 		  ResetProtocolState();
 		  parser_state = PARSER_WAIT_START;
 		  break;
+	  }*/
+
+	  switch(parser_state)
+	  {
+	  case PARSER_WAIT_START:
+		  length = ProcessBuffer();
+		  break;
+
+	  case PARSER_READ_PACKET:
+		  ParserPipeline(length);
+		  break;
+
+	  default:
+		  break;
+
 	  }
 
     /* USER CODE END WHILE */
