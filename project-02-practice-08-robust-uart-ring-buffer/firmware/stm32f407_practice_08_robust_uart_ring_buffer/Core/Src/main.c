@@ -54,13 +54,15 @@ typedef enum WorkState_e
 
 typedef enum ErrorState_e
 {
-	ERROR_NO							= 0x00,
-	ERROR_RX_TIMEOUT					= 0xA0,
-	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW	= 0xA1,
-	ERROR_RX_START_BYTE_NOT_FOUND		= 0xA2,
-	ERROR_RX_INVALID_COMMAND			= 0xA3,
-	ERROR_RX_CHECKSUM					= 0xA4,
-	ERROR_RX_INCONSISTENCY				= 0xA5,
+	ERROR_NO								= 0x00,
+	ERROR_RX_TIMEOUT						= 0xA0,
+	ERROR_RX_PAYLOAD_LENGTH_OVERFLOW		= 0xA1,
+	ERROR_RX_START_BYTE_NOT_FOUND			= 0xA2,
+	ERROR_RX_INVALID_COMMAND				= 0xA3,
+	ERROR_RX_CHECKSUM						= 0xA4,
+	ERROR_RX_INCONSISTENCY					= 0xA5,
+	ERROR_COMMAND_INVALID_PAYLOAD_LENGTH	= 0xB0,
+	ERROT_COMMAND_INVALID_PAYLOAD			= 0xB1
 
 }ErrorState_t;
 
@@ -70,7 +72,7 @@ typedef enum ErrorState_e
 /* USER CODE BEGIN PD */
 
 #define UART_BUFFER_RING_SIZE	50U
-#define RX_PACKET_SIZE			8U
+#define RX_TX_PACKET_SIZE		8U
 #define TIMEOUT_TIME			5000U
 #define PAYLOAD_DATA_SIZE		3U
 
@@ -94,7 +96,7 @@ static volatile uint8_t buffer_write_index = 0U;
 static uint8_t buffer_read_index = 0U;
 static uint8_t rx_byte = 0U;
 
-static uint8_t rx_packet[RX_PACKET_SIZE];
+static uint8_t rx_packet[RX_TX_PACKET_SIZE];
 static uint8_t rx_command = 0U;
 static uint8_t rx_payload_length = 0U;
 static uint8_t rx_payload[PAYLOAD_DATA_SIZE];
@@ -117,7 +119,7 @@ void ResetProtocolState(void)
 	parser_state = PARSER_WAIT_START;
 	error_state = ERROR_NO;
 
-	for(uint8_t i = 0; i < RX_PACKET_SIZE; i++)
+	for(uint8_t i = 0; i < RX_TX_PACKET_SIZE; i++)
 	{
 		rx_packet[i] = 0U;
 	}
@@ -313,6 +315,75 @@ void ParserPipeline(uint8_t length)
 	}
 }
 
+bool CommandDetailsCheck(uint8_t payload_length, uint8_t value_min[], uint8_t value_max[])
+{
+	uint8_t pass = false;
+
+	if(rx_payload_length == payload_length)
+	{
+		pass = true;
+
+		for(uint8_t i = 0; i < payload_length; i++)
+		{
+			if(pass)
+			{
+				if(rx_payload[i] < value_min[i] || rx_payload[i] > value_max[i])
+				{
+					parser_state = PARSER_ERROR;
+					error_state = ERROT_COMMAND_INVALID_PAYLOAD;
+					pass = false;
+				}
+			}
+		}
+	}
+	else
+	{
+		parser_state = PARSER_ERROR;
+		error_state = ERROR_COMMAND_INVALID_PAYLOAD_LENGTH;
+		pass = false;
+	}
+
+	return pass;
+}
+
+void WorkflowManager(void)
+{
+	uint8_t command_payload_length = 0U;
+	uint8_t command_payload_value_min[PAYLOAD_DATA_SIZE];
+	uint8_t command_payload_value_max[PAYLOAD_DATA_SIZE];
+	uint8_t response_data_length = 0U;
+	uint8_t response_data_value[PAYLOAD_DATA_SIZE];
+	bool pass = false;
+
+	switch(command_state)
+	{
+	case COMMAND_PING:
+		command_payload_length = 0x0U;
+		pass = CommandDetailsCheck(command_payload_length, command_payload_value_min, command_payload_value_max);
+		if(pass)
+		{
+			response_data_length = 0x01U;
+			response_data_value[0] = 0x01U;
+		}
+		else
+		{
+			response_data_length = 0x00U;
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void transmitPacket(void)
+{
+	uint8_t response_msg[RX_TX_PACKET_SIZE];
+	uint8_t start_byte = 0xAAU;
+	uint8_t checsum = 0U;
+	uint8_t msg_index = 0U;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -402,6 +473,9 @@ int main(void)
 	  case PARSER_READ_PACKET:
 		  ParserPipeline(length);
 		  break;
+
+	  case PARSER_APPLICATION:
+
 
 	  default:
 		  break;
