@@ -49,6 +49,7 @@ typedef enum WorkState_e
 	PARSER_WAIT_START,
 	PARSER_READ_PACKET,
 	PARSER_APPLICATION,
+	PARSER_SEND,
 	PARSER_ERROR
 }WorkState_t;
 
@@ -61,8 +62,11 @@ typedef enum ErrorState_e
 	ERROR_RX_INVALID_COMMAND				= 0xA3,
 	ERROR_RX_CHECKSUM						= 0xA4,
 	ERROR_RX_INCONSISTENCY					= 0xA5,
+	ERROR_RX_BUFFER_FULL					= 0xA6,
 	ERROR_COMMAND_INVALID_PAYLOAD_LENGTH	= 0xB0,
-	ERROT_COMMAND_INVALID_PAYLOAD			= 0xB1
+	ERROR_COMMAND_INVALID_PAYLOAD			= 0xB1,
+	ERROR_EXEC_VERIFICATION_FAILED			= 0xC0,
+	ERROR_EXEC_READ_ADC_FAILED				= 0xC1
 
 }ErrorState_t;
 
@@ -75,6 +79,8 @@ typedef enum ErrorState_e
 #define RX_TX_PACKET_SIZE		8U
 #define TIMEOUT_TIME			5000U
 #define PAYLOAD_DATA_SIZE		3U
+#define ADC_READ_COUNT			10U
+#define ADC_READ_MIN_COUNT		3U
 
 /* USER CODE END PD */
 
@@ -91,22 +97,35 @@ static CommandMode_t 	command_state = COMMAND_WAIT;
 static WorkState_t 		parser_state = PARSER_WAIT_START;
 static ErrorState_t 	error_state = ERROR_NO;
 
+static volatile bool backtop_write = false;
+static volatile bool backtop_read = false;
+static volatile bool buffer_full = false;
+
 static volatile uint8_t uart_buffer_ring[UART_BUFFER_RING_SIZE];
 static volatile uint8_t buffer_write_index = 0U;
-static uint8_t buffer_read_index = 0U;
+static volatile uint8_t buffer_read_index = 0U;
 static uint8_t rx_byte = 0U;
 
 static uint8_t rx_packet[RX_TX_PACKET_SIZE];
 static uint8_t rx_command = 0U;
 static uint8_t rx_payload_length = 0U;
 static uint8_t rx_payload[PAYLOAD_DATA_SIZE];
-static uint8_t rx_checsum = 0U;
+static uint8_t rx_checksum = 0U;
+
+static uint8_t command_payload_length = 0U;
+static uint8_t command_payload_value_min[PAYLOAD_DATA_SIZE];
+static uint8_t command_payload_value_max[PAYLOAD_DATA_SIZE];
+static uint8_t response_data_length = 0U;
+static uint8_t response_data_value[PAYLOAD_DATA_SIZE];
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
+void TransmitPacket(void);
+void ResetIndex(void);
 
 /* USER CODE END PFP */
 
@@ -119,27 +138,58 @@ void ResetProtocolState(void)
 	parser_state = PARSER_WAIT_START;
 	error_state = ERROR_NO;
 
+	rx_command = 0U;
+	rx_payload_length = 0U;
+	rx_checksum = 0U;
+
+	command_payload_length = 0U;
+	response_data_length = 0U;
+
 	for(uint8_t i = 0; i < RX_TX_PACKET_SIZE; i++)
 	{
 		rx_packet[i] = 0U;
 	}
 
-	rx_command = 0U;
-	rx_payload_length = 0U;
-	rx_checsum = 0U;
-
 	for(uint8_t i = 0; i < PAYLOAD_DATA_SIZE; i++)
 	{
 		rx_payload[i] = 0U;
+		command_payload_value_min[i] = 0U;
+		command_payload_value_max[i] = 0U;
+		response_data_value[i] = 0U;
 	}
 
 }
 
+void BufferFullRecovery(void)
+{
+	if (buffer_full == true)
+	{
+		parser_state = PARSER_ERROR;
+		error_state = ERROR_RX_BUFFER_FULL;
+
+		TransmitPacket();
+
+		ResetProtocolState();
+
+		buffer_full = false;
+
+	}
+}
+
 void ResetIndex(void)
 {
-	if(buffer_read_index == 50)
+	if(buffer_read_index == UART_BUFFER_RING_SIZE)
 	{
 		buffer_read_index = 0U;
+
+		if (backtop_read == true)
+		{
+			backtop_read = false;
+		}
+		else
+		{
+			backtop_read = true;
+		}
 	}
 }
 
@@ -155,43 +205,66 @@ uint8_t CalculateChecksum(uint8_t data[], uint8_t length)
 	return sum;
 }
 
+void ADCReadAverage(void)
+{
+	uint32_t sum = 0U;
+	uint8_t count = 0U;
+
+	for(uint8_t i = 0; i < ADC_READ_COUNT; i++)
+	{
+		HAL_ADC_Start(&hadc1);
+
+		if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+		{
+			sum += HAL_ADC_GetValue(&hadc1);
+			count++;
+		}
+
+		HAL_ADC_Stop(&hadc1);
+	}
+
+	if (count >= ADC_READ_MIN_COUNT)
+	{
+		uint16_t raw = (uint16_t)(sum/((uint32_t)count));
+		response_data_value[0] = (uint8_t)(raw >> 8);
+		response_data_value[1] = (uint8_t)(raw);
+		response_data_length = 0x02U;
+	}
+
+	else
+	{
+		parser_state = PARSER_ERROR;
+		error_state = ERROR_EXEC_READ_ADC_FAILED;
+	}
+}
+
 uint8_t ProcessBuffer(void)
 {
 	uint32_t last_time = 0U;
 	uint8_t packet_index = 0U;
 	uint8_t packet_length = 0U;
 	bool start_packet = true;
-	uint8_t pass = 0x10;
-
-	HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 
 	while(start_packet)
 	{
-		if(buffer_read_index != buffer_write_index)
+		if(buffer_read_index != buffer_write_index || backtop_write != backtop_read)
 		{
 			if(uart_buffer_ring[buffer_read_index] == 0xAAU)
 			{
-				pass = 0x11;
 				rx_packet[packet_index] = uart_buffer_ring[buffer_read_index];
 				packet_index++;
 				buffer_read_index++;
 				start_packet = false;
-				HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 			}
 			else
 			{
-				pass = 0x12;
 				buffer_read_index++;
-				HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 			}
 			ResetIndex();
 		}
 	}
 
 	last_time = HAL_GetTick();
-
-	pass = 0x13;
-	HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 
 	while(parser_state == PARSER_WAIT_START)
 	{
@@ -201,26 +274,18 @@ uint8_t ProcessBuffer(void)
 			error_state = ERROR_RX_TIMEOUT;
 		}
 
-		else if(buffer_read_index != buffer_write_index)
+		else if(buffer_read_index != buffer_write_index || backtop_write != backtop_read)
 		{
-			pass = 0x14;
-			HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 			rx_packet[packet_index] = uart_buffer_ring[buffer_read_index];
 
 			if(packet_index == 2)
 			{
-				pass = 0x15;
-				HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 				if(rx_packet[2] <= PAYLOAD_DATA_SIZE)
 				{
-					pass = 0x16;
-					HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 					packet_length = rx_packet[2] + 4U;
 				}
 				else
 				{
-					pass = 0x17;
-					HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 					parser_state = PARSER_ERROR;
 					error_state = ERROR_RX_PAYLOAD_LENGTH_OVERFLOW;
 				}
@@ -229,13 +294,8 @@ uint8_t ProcessBuffer(void)
 			buffer_read_index++;
 			packet_index++;
 
-			pass = 0x18;
-			HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-
 			if(packet_index == packet_length && error_state == ERROR_NO)
 			{
-				pass = 0x19;
-				HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
 				parser_state = PARSER_READ_PACKET;
 			}
 
@@ -244,7 +304,6 @@ uint8_t ProcessBuffer(void)
 		}
 	}
 
-	HAL_UART_Transmit(&huart2, &error_state, 1U, HAL_MAX_DELAY);
 
 	return packet_length;
 
@@ -289,11 +348,11 @@ void ParserPipeline(uint8_t length)
 				packet_index++;
 			}
 
-			checksum = CalculateChecksum(rx_payload, packet_index);
+			checksum = CalculateChecksum(rx_packet, packet_index);
 
 			if(checksum == rx_packet[packet_index])
 			{
-				rx_checsum = rx_packet[packet_index];
+				rx_checksum = rx_packet[packet_index];
 				packet_index++;
 
 				if(packet_index == length)
@@ -330,7 +389,7 @@ bool CommandDetailsCheck(uint8_t payload_length, uint8_t value_min[], uint8_t va
 				if(rx_payload[i] < value_min[i] || rx_payload[i] > value_max[i])
 				{
 					parser_state = PARSER_ERROR;
-					error_state = ERROT_COMMAND_INVALID_PAYLOAD;
+					error_state = ERROR_COMMAND_INVALID_PAYLOAD;
 					pass = false;
 				}
 			}
@@ -348,40 +407,107 @@ bool CommandDetailsCheck(uint8_t payload_length, uint8_t value_min[], uint8_t va
 
 void WorkflowManager(void)
 {
-	uint8_t command_payload_length = 0U;
-	uint8_t command_payload_value_min[PAYLOAD_DATA_SIZE];
-	uint8_t command_payload_value_max[PAYLOAD_DATA_SIZE];
-	uint8_t response_data_length = 0U;
-	uint8_t response_data_value[PAYLOAD_DATA_SIZE];
 	bool pass = false;
 
 	switch(command_state)
 	{
 	case COMMAND_PING:
-		command_payload_length = 0x0U;
+		command_payload_length = 0x00U;
 		pass = CommandDetailsCheck(command_payload_length, command_payload_value_min, command_payload_value_max);
 		if(pass)
 		{
 			response_data_length = 0x01U;
 			response_data_value[0] = 0x01U;
 		}
-		else
+		break;
+
+	case COMMAND_SET_LED:
+		command_payload_length = 0x01U;
+		command_payload_value_min[0] = 0x00U;
+		command_payload_value_max[0] = 0x01U;
+		pass = CommandDetailsCheck(command_payload_length, command_payload_value_min, command_payload_value_max);
+		if(pass)
 		{
-			response_data_length = 0x00U;
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, rx_payload[0]);
+			uint8_t test = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			if(test != rx_payload[0])
+			{
+				parser_state = PARSER_ERROR;
+				error_state = ERROR_EXEC_VERIFICATION_FAILED;
+			}
+			else
+			{
+				response_data_value[0] = test;
+				response_data_length = 0x01U;
+			}
+		}
+		break;
+
+	case COMMAND_GET_LED:
+		command_payload_length = 0x00U;
+		pass = CommandDetailsCheck(command_payload_length, command_payload_value_min, command_payload_value_max);
+		if (pass)
+		{
+			response_data_length = 0x01U;
+			response_data_value[0] = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		}
+		break;
+
+	case COMMAND_GET_ADC:
+		command_payload_length = 0x00U;
+		pass = CommandDetailsCheck(command_payload_length, command_payload_value_min, command_payload_value_max);
+		if (pass)
+		{
+			ADCReadAverage();
 		}
 		break;
 
 	default:
 		break;
 	}
+
+	if(error_state == ERROR_NO)
+	{
+		parser_state = PARSER_SEND;
+	}
 }
 
-void transmitPacket(void)
+void TransmitPacket(void)
 {
 	uint8_t response_msg[RX_TX_PACKET_SIZE];
 	uint8_t start_byte = 0xAAU;
-	uint8_t checsum = 0U;
+	uint8_t checksum = 0U;
 	uint8_t msg_index = 0U;
+
+	response_msg[msg_index] = start_byte;
+	msg_index++;
+
+	response_msg[msg_index] = rx_command;
+	msg_index++;
+
+	response_msg[msg_index] = error_state;
+	msg_index++;
+
+	if(error_state != ERROR_NO)
+	{
+		response_data_length = 0x0U;
+	}
+
+	response_msg[msg_index] = response_data_length;
+	msg_index++;
+
+	for(uint8_t i = 0; i < response_data_length; i++)
+	{
+		response_msg[msg_index] = response_data_value[i];
+		msg_index++;
+	}
+
+	checksum = CalculateChecksum(response_msg, msg_index);
+
+	response_msg[msg_index] = checksum;
+	msg_index++;
+
+	HAL_UART_Transmit(&huart2, (uint8_t* )response_msg, msg_index, HAL_MAX_DELAY);
 }
 
 /* USER CODE END 0 */
@@ -426,8 +552,6 @@ int main(void)
 
   ResetProtocolState();
 
-  uint8_t pass = 20;
-
   uint8_t length = 0U;
 
   /* USER CODE END 2 */
@@ -436,33 +560,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  /*switch(parser_state)
-	  {
-	  case PARSER_WAIT_START:
-		  pass = 0x21;
-		  HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-		  length = ProcessBuffer();
-		  pass = 0x22;
-		  HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-		  break;
-
-	  case PARSER_READ_PACKET:
-		  pass = 0x23;
-		  HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-		  HAL_UART_Transmit(&huart2, (uint8_t* )rx_packet, length, HAL_MAX_DELAY);
-		  parser_state = PARSER_WAIT_START;
-		  ResetProtocolState();
-		  pass = 0x24;
-		  HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-		  break;
-
-	  default:
-		  pass = 0x25;
-		  HAL_UART_Transmit(&huart2, &pass, 1U, HAL_MAX_DELAY);
-		  ResetProtocolState();
-		  parser_state = PARSER_WAIT_START;
-		  break;
-	  }*/
 
 	  switch(parser_state)
 	  {
@@ -475,9 +572,19 @@ int main(void)
 		  break;
 
 	  case PARSER_APPLICATION:
+		  WorkflowManager();
+		  break;
 
+	  case PARSER_SEND:
+		  TransmitPacket();
+		  ResetProtocolState();
+		  BufferFullRecovery();
+		  break;
 
 	  default:
+		  TransmitPacket();
+		  ResetProtocolState();
+		  BufferFullRecovery();
 		  break;
 
 	  }
@@ -541,12 +648,28 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 {
 	if(huart->Instance == USART2)
 	{
-		uart_buffer_ring[buffer_write_index] = rx_byte;
-		buffer_write_index++;
 
-		if(buffer_write_index == 50U)
+		if(buffer_read_index == buffer_write_index && backtop_write != backtop_read)
 		{
-			buffer_write_index = 0U;
+			buffer_full = true;
+		}
+		else
+		{
+			uart_buffer_ring[buffer_write_index] = rx_byte;
+			buffer_write_index++;
+			if(buffer_write_index == UART_BUFFER_RING_SIZE)
+			{
+				buffer_write_index = 0U;
+
+				if(backtop_write == true)
+				{
+					backtop_write = false;
+				}
+				else
+				{
+					backtop_write = true;
+				}
+			}
 		}
 
 		if(HAL_UART_Receive_IT(&huart2, &rx_byte, 1U) != HAL_OK)
