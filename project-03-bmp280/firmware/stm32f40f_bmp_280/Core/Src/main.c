@@ -28,6 +28,7 @@
 
 #include<stdio.h>
 #include<string.h>
+#include<stdbool.h>
 
 /* USER CODE END Includes */
 
@@ -60,6 +61,71 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void uart_send(char* text)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
+}
+
+void ReadControlRegisters(void)
+{
+	uint8_t f3 = 0x00U;
+	uint8_t f4 = 0x00U;
+	uint8_t f5 = 0x00U;
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF3, I2C_MEMADD_SIZE_8BIT, &f3, 1U, 100) == HAL_OK)
+	{
+		char f3_msg[20];
+
+		snprintf(f3_msg, sizeof(f3_msg), "0xF3: 0x%02X\r\n", f3);
+
+		uart_send(f3_msg);
+	}
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF4, I2C_MEMADD_SIZE_8BIT, &f4, 1U, 100) == HAL_OK)
+	{
+		char f4_msg[20];
+
+		snprintf(f4_msg, sizeof(f4_msg), "0xF4: 0x%02X\r\n", f4);
+
+		uart_send(f4_msg);
+	}
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF5, I2C_MEMADD_SIZE_8BIT, &f5, 1U, 100) == HAL_OK)
+	{
+		char f5_msg[20];
+
+		snprintf(f5_msg, sizeof(f5_msg), "0xF5: 0x%02X\r\n", f5);
+
+		uart_send(f5_msg);
+	}
+}
+
+bool WriteRegiser(uint8_t adress, uint8_t data)
+{
+	if(HAL_I2C_Mem_Write(&hi2c1, 0x76 << 1, adress, I2C_MEMADD_SIZE_8BIT, &data, 1U, 100) == HAL_OK)
+	{
+		char write_ok_msg[30];
+
+		snprintf(write_ok_msg, sizeof(write_ok_msg), "\r\n0x%02X_WRITE_OK: 0x%02X\r\n", adress, data);
+
+		uart_send(write_ok_msg);
+
+		return true;
+
+	}
+	else
+	{
+		char write_fail_msg[30];
+
+		snprintf(write_fail_msg, sizeof(write_fail_msg), "0x%02X_WRITE_FAIL: 0x%02X\r\n", adress, data);
+
+		uart_send(write_fail_msg);
+
+		return false;
+	}
+}
+
 
 /* USER CODE END 0 */
 
@@ -96,33 +162,64 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  char boot_msg[] = "/----BOOT_OK----/\r\n";
+  char boot_msg_head[] = "\r\n\r\n/---------------/\r\n";
+  uart_send(boot_msg_head);
+  uart_send(boot_msg);
+
   uint8_t chip_id;
+
+  bool ready = false;
+
   HAL_StatusTypeDef results = HAL_I2C_IsDeviceReady(&hi2c1, 0x76 << 1, 3U, 100);
   if(results == HAL_OK)
   {
-	  char ready_msg[] = "I2C_DEVICE_READY\r\n";
-	  HAL_UART_Transmit(&huart2, (uint8_t* )ready_msg, strlen(ready_msg), HAL_MAX_DELAY);
+	  char ready_msg[] = "\r\nI2C_DEVICE_READY\r\n";
+	  uart_send(ready_msg);
 
 	  if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xD0, I2C_MEMADD_SIZE_8BIT, &chip_id, 1U, 100) == HAL_OK)
 	  {
 		  char id_msg[32];
 
-		  uint8_t len = snprintf(id_msg, sizeof(id_msg), "CHIP_ID: 0x%02X\r\n", chip_id);
-
-		  HAL_UART_Transmit(&huart2, (uint8_t* )id_msg, len, HAL_MAX_DELAY);
+		  if(chip_id == 0x58U)
+		  {
+			  snprintf(id_msg, sizeof(id_msg), "CHIP_ID_OK: 0x%02X\r\n", chip_id);
+			  uart_send(id_msg);
+			  ready = true;
+		  }
+		  else
+		  {
+			  snprintf(id_msg, sizeof(id_msg), "CHIP_ID_ERROR: 0x%02X\r\n", chip_id);
+			  uart_send(id_msg);
+		  }
 	  }
 	  else
 	  {
 		  char error_msg[] = "CHIP_ID: ERROR\r\n";
-		  HAL_UART_Transmit(&huart2, (uint8_t* )error_msg, strlen(error_msg), HAL_MAX_DELAY);
+
+		  uart_send(error_msg);
+
 	  }
 
   }
   else
   {
 	  char ready_msg[] = "I2C_DEVICE_NOT_READY";
-	  HAL_UART_Transmit(&huart2, (uint8_t* )ready_msg, strlen(ready_msg), HAL_MAX_DELAY);
+	  uart_send(ready_msg);
   }
+
+  if(ready)
+  {
+	  ReadControlRegisters();
+	  WriteRegiser(0xF5, 0x20);
+	  ReadControlRegisters();
+	  WriteRegiser(0xF5, 0x00);
+	  ReadControlRegisters();
+  }
+
+
+
 
   /* USER CODE END 2 */
 
