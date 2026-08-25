@@ -51,6 +51,10 @@
 
 /* USER CODE BEGIN PV */
 
+static uint8_t f3 = 0x00U;
+static uint8_t f4 = 0x00U;
+static uint8_t f5 = 0x00U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,49 +71,67 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void ReadControlRegisters(void)
+void ReadControlRegisters(bool uart_write)
 {
-	uint8_t f3 = 0x00U;
-	uint8_t f4 = 0x00U;
-	uint8_t f5 = 0x00U;
+	bool f3_ok = false;
+	bool f4_ok = false;
+	bool f5_ok = false;
 
 	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF3, I2C_MEMADD_SIZE_8BIT, &f3, 1U, 100) == HAL_OK)
 	{
-		char f3_msg[20];
-
-		snprintf(f3_msg, sizeof(f3_msg), "0xF3: 0x%02X\r\n", f3);
-
-		uart_send(f3_msg);
+		f3_ok = true;
 	}
 
 	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF4, I2C_MEMADD_SIZE_8BIT, &f4, 1U, 100) == HAL_OK)
 	{
-		char f4_msg[20];
-
-		snprintf(f4_msg, sizeof(f4_msg), "0xF4: 0x%02X\r\n", f4);
-
-		uart_send(f4_msg);
+		f4_ok = true;
 	}
 
 	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF5, I2C_MEMADD_SIZE_8BIT, &f5, 1U, 100) == HAL_OK)
 	{
-		char f5_msg[20];
+		f5_ok = true;
+	}
 
-		snprintf(f5_msg, sizeof(f5_msg), "0xF5: 0x%02X\r\n", f5);
+	if(uart_write)
+	{
+		if(f3_ok)
+		{
+			char f3_msg[20];
+			snprintf(f3_msg, sizeof(f3_msg), "0xF3: 0x%02X\r\n", f3);
+			uart_send(f3_msg);
+		}
 
-		uart_send(f5_msg);
+		if(f4_ok)
+		{
+			char f4_msg[20];
+			snprintf(f4_msg, sizeof(f4_msg), "0xF4: 0x%02X\r\n", f4);
+			uart_send(f4_msg);
+		}
+
+		if(f5_ok)
+		{
+			char f5_msg[20];
+			snprintf(f5_msg, sizeof(f5_msg), "0xF5: 0x%02X\r\n", f5);
+			uart_send(f5_msg);
+		}
+
+
+
 	}
 }
 
-bool WriteRegiser(uint8_t adress, uint8_t data)
+
+bool WriteRegister(uint8_t address, uint8_t data)
 {
-	if(HAL_I2C_Mem_Write(&hi2c1, 0x76 << 1, adress, I2C_MEMADD_SIZE_8BIT, &data, 1U, 100) == HAL_OK)
+	if(HAL_I2C_Mem_Write(&hi2c1, 0x76 << 1, address, I2C_MEMADD_SIZE_8BIT, &data, 1U, 100) == HAL_OK)
 	{
 		char write_ok_msg[30];
 
-		snprintf(write_ok_msg, sizeof(write_ok_msg), "\r\n0x%02X_WRITE_OK: 0x%02X\r\n", adress, data);
+		snprintf(write_ok_msg, sizeof(write_ok_msg), "\r\n0x%02X_WRITE_OK: 0x%02X\r\n", address, data);
 
 		uart_send(write_ok_msg);
+
+		ReadControlRegisters(false);
 
 		return true;
 
@@ -118,13 +140,51 @@ bool WriteRegiser(uint8_t adress, uint8_t data)
 	{
 		char write_fail_msg[30];
 
-		snprintf(write_fail_msg, sizeof(write_fail_msg), "0x%02X_WRITE_FAIL: 0x%02X\r\n", adress, data);
+		snprintf(write_fail_msg, sizeof(write_fail_msg), "0x%02X_WRITE_FAIL: 0x%02X\r\n", address, data);
 
 		uart_send(write_fail_msg);
+
+		ReadControlRegisters(false);
 
 		return false;
 	}
 }
+
+void ReadRaw(void)
+{
+	uint8_t raw_data[6];
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, (uint8_t* )raw_data, 6U, 100) == HAL_OK)
+	{
+		char raw_msg[64];
+
+		snprintf(raw_msg, sizeof(raw_msg), "DATA_0xF7-0xFC: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X\r\n",
+				raw_data[0], raw_data[1], raw_data[2], raw_data[3], raw_data[4], raw_data[5]);
+
+		uart_send(raw_msg);
+	}
+}
+
+void readCalbData(void)
+{
+	uint8_t calbdata[25];
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0x88, I2C_MEMADD_SIZE_8BIT, (uint8_t* )calbdata, 24U, 100) == HAL_OK)
+	{
+		char data_msg[150];
+
+		snprintf(data_msg, sizeof(data_msg), "CALIB_RAW 0x88-0x9F: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X"
+				" 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X"
+				" 0x%02X 0x%02X 0x%02X\r\n", calbdata[0], calbdata[1], calbdata[2], calbdata[3], calbdata[4], calbdata[5],
+				calbdata[6], calbdata[7], calbdata[8], calbdata[9], calbdata[10], calbdata[11], calbdata[12], calbdata[13],
+				calbdata[14], calbdata[15], calbdata[16], calbdata[17], calbdata[18], calbdata[19], calbdata[20], calbdata[21],
+				calbdata[22], calbdata[23]);
+
+		uart_send(data_msg);
+	}
+}
+
+
 
 
 /* USER CODE END 0 */
@@ -170,8 +230,6 @@ int main(void)
 
   uint8_t chip_id;
 
-  bool ready = false;
-
   HAL_StatusTypeDef results = HAL_I2C_IsDeviceReady(&hi2c1, 0x76 << 1, 3U, 100);
   if(results == HAL_OK)
   {
@@ -186,7 +244,6 @@ int main(void)
 		  {
 			  snprintf(id_msg, sizeof(id_msg), "CHIP_ID_OK: 0x%02X\r\n", chip_id);
 			  uart_send(id_msg);
-			  ready = true;
 		  }
 		  else
 		  {
@@ -201,7 +258,6 @@ int main(void)
 		  uart_send(error_msg);
 
 	  }
-
   }
   else
   {
@@ -209,17 +265,86 @@ int main(void)
 	  uart_send(ready_msg);
   }
 
-  if(ready)
+
+
+  char reset_start_msg[] = "\r\nRESET_START\r\n";
+  uart_send(reset_start_msg);
+
+  if(WriteRegister(0xE0, 0xB6))
   {
-	  ReadControlRegisters();
-	  WriteRegiser(0xF5, 0x20);
-	  ReadControlRegisters();
-	  WriteRegiser(0xF5, 0x00);
-	  ReadControlRegisters();
+
+	  HAL_Delay(5);
+
+	  uint8_t im_update = f3 & 0x01U;
+	  uint32_t last_time = HAL_GetTick();
+
+	  do
+	  {
+		  ReadControlRegisters(false);
+		  im_update = f3 & 0x01U;
+
+	  } while(im_update != 0U && (HAL_GetTick() - last_time) < 20U);
+
+	  if(im_update == 0U)
+	  {
+		  char reset_finish_msg[] = "RESET_FINISH\r\n";
+		  uart_send(reset_finish_msg);
+
+		  ReadControlRegisters(true);
+		  ReadRaw();
+	  }
+
+	  else
+	  {
+		  char reset_timeout_msg[] = "RESET_TIMEOUT\r\n";
+		  uart_send(reset_timeout_msg);
+
+		  ReadControlRegisters(true);
+		  ReadRaw();
+	  }
   }
 
 
+  char measuring_start_msg[] = "\r\nMEASURING_START\r\n";
+  uart_send(measuring_start_msg);
 
+  if(WriteRegister(0xF4U, 0x25U))
+  {
+	  HAL_Delay(5);
+
+	  uint8_t measuring = f3 & 0x08U;
+	  uint32_t last_time = HAL_GetTick();
+
+	  do
+	  {
+		  ReadControlRegisters(false);
+		  measuring = f3 & 0x08U;
+
+	  } while(measuring != 0U && (HAL_GetTick() - last_time) < 20U);
+
+	  if(measuring == 0U)
+	  {
+	  	  char measuring_finish_msg[] = "MEASURING_FINISH\r\n";
+	  	  uart_send(measuring_finish_msg);
+
+	  	  ReadControlRegisters(true);
+	  	  ReadRaw();
+
+	  	readCalbData();
+	    }
+
+	  else
+	  {
+		  char measuring_timeout_msg[] = "MEASURING_TIMEOUT\r\n";
+		  uart_send(measuring_timeout_msg);
+
+	 	  ReadControlRegisters(true);
+	  	  ReadRaw();
+	  }
+
+
+
+  }
 
   /* USER CODE END 2 */
 
