@@ -22,6 +22,7 @@
 #include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
+#include "bmp280.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -39,6 +40,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define BMP280_ADRESS 0x76
 
 /* USER CODE END PD */
 
@@ -152,35 +155,72 @@ bool WriteRegister(uint8_t address, uint8_t data)
 
 void ReadRaw(void)
 {
-	uint8_t raw_data[6];
+	BMP280_DataRaw data_raw;
+	BMP280_UncompensatedData uncompensated_data;
+	BMP280_Status parse_status;
 
-	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, (uint8_t* )raw_data, 6U, 100) == HAL_OK)
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, data_raw.bytes, BMP280_RAW_DATA_LENGTH, 100) == HAL_OK)
 	{
-		char raw_msg[64];
+		parse_status = BMP280_ParseRawData(&data_raw, &uncompensated_data);
 
-		snprintf(raw_msg, sizeof(raw_msg), "DATA_0xF7-0xFC: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X\r\n",
-				raw_data[0], raw_data[1], raw_data[2], raw_data[3], raw_data[4], raw_data[5]);
+		if(parse_status == BMP280_STATUS_OK)
+		{
+			char uncompensated_msg[50];
 
-		uart_send(raw_msg);
+			snprintf(uncompensated_msg, sizeof(uncompensated_msg), "TEMPERATURE_RAW: %u\r\nPRESSURE_RAW: %u\r\n",
+					(unsigned int)(uint32_t)uncompensated_data.adc_temperature,
+					(unsigned int)(uint32_t)uncompensated_data.adc_pressure);
+
+			uart_send(uncompensated_msg);
+
+		}
 	}
 }
 
 void readCalbData(void)
 {
-	uint8_t calbdata[25];
 
-	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0x88, I2C_MEMADD_SIZE_8BIT, (uint8_t* )calbdata, 24U, 100) == HAL_OK)
+	BMP280_CalibrationRaw raw_calibration;
+	BMP280_CalibrationData calibration_data;
+	BMP280_Status parse_status;
+
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0x88, I2C_MEMADD_SIZE_8BIT, raw_calibration.bytes, BMP280_CALIBRATION_DATA_LENGTH, 100) == HAL_OK)
 	{
-		char data_msg[150];
+		parse_status = BMP280_ParseCalibration(&raw_calibration, &calibration_data);
+		if(parse_status == BMP280_STATUS_OK)
+		{
+			char temperature_msg[150];
+			char pressure_msg[180];
 
-		snprintf(data_msg, sizeof(data_msg), "CALIB_RAW 0x88-0x9F: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X"
-				" 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X"
-				" 0x%02X 0x%02X 0x%02X\r\n", calbdata[0], calbdata[1], calbdata[2], calbdata[3], calbdata[4], calbdata[5],
-				calbdata[6], calbdata[7], calbdata[8], calbdata[9], calbdata[10], calbdata[11], calbdata[12], calbdata[13],
-				calbdata[14], calbdata[15], calbdata[16], calbdata[17], calbdata[18], calbdata[19], calbdata[20], calbdata[21],
-				calbdata[22], calbdata[23]);
+			snprintf(temperature_msg, sizeof(temperature_msg),
+					"CALIB_T_HEX: T1=0x%04X T2=0x%04X T3=0x%04X\r\n"
+					"CALIB_T_DEC: T1=%u T2=%d T3=%d\r\n",
+					(unsigned int)(uint16_t)calibration_data.dig_T1,
+					(unsigned int)(uint16_t)calibration_data.dig_T2,
+					(unsigned int)(uint16_t)calibration_data.dig_T3,
+					(unsigned int)(uint16_t)calibration_data.dig_T1,
+					(int16_t)calibration_data.dig_T2,
+					(int16_t)calibration_data.dig_T3);
 
-		uart_send(data_msg);
+			snprintf(pressure_msg, sizeof(pressure_msg),
+					"CALIB_P1_DEC: P1=%u P2=%d P3=%d\r\n"
+					"CALIB_P2_DEC: P4=%d P5=%d P6=%d\r\n"
+					"CALIB_P3_DEC: P7=%d P8=%d P9=%d\r\n",
+					(unsigned int)(uint16_t)calibration_data.dig_P1,
+					(int16_t)calibration_data.dig_P2,
+					(int16_t)calibration_data.dig_P3,
+					(int16_t)calibration_data.dig_P4,
+					(int16_t)calibration_data.dig_P5,
+					(int16_t)calibration_data.dig_P6,
+					(int16_t)calibration_data.dig_P7,
+					(int16_t)calibration_data.dig_P8,
+					(int16_t)calibration_data.dig_P9);
+
+
+			uart_send(temperature_msg);
+			uart_send(pressure_msg);
+		}
 	}
 }
 
