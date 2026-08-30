@@ -41,8 +41,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define BMP280_ADRESS 0x76
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -124,7 +122,7 @@ void ReadControlRegisters(bool uart_write)
 }
 
 
-bool WriteRegister(uint8_t address, uint8_t data)
+static bool WriteRegister(uint8_t address, uint8_t data)
 {
 	if(HAL_I2C_Mem_Write(&hi2c1, 0x76 << 1, address, I2C_MEMADD_SIZE_8BIT, &data, 1U, 100) == HAL_OK)
 	{
@@ -158,6 +156,21 @@ void ReadRaw(void)
 	BMP280_DataRaw data_raw;
 	BMP280_UncompensatedData uncompensated_data;
 	BMP280_Status parse_status;
+
+	uint8_t f7;
+	uint8_t fa;
+
+	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, &f7, 1U, 100) == HAL_OK)
+	{
+		if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xFA, I2C_MEMADD_SIZE_8BIT, &fa, 1U, 100) == HAL_OK)
+		{
+			char buffer[50];
+
+			snprintf(buffer, sizeof(buffer), "MEM_F7_FA: 0x%02X 0x%02X\r\n", f7, fa);
+
+			uart_send(buffer);
+		}
+	}
 
 	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, data_raw.bytes, BMP280_RAW_DATA_LENGTH, 100) == HAL_OK)
 	{
@@ -381,10 +394,22 @@ int main(void)
 	 	  ReadControlRegisters(true);
 	  	  ReadRaw();
 	  }
-
-
-
   }
+
+
+
+  BMP280_t BMP280;
+
+  if(BMP280_Init(&BMP280, &hi2c1, 0x76U) != BMP280_READY)
+  {
+	  uint8_t error = BMP280_Error_Handler();
+	  char error_msg[50];
+
+	  snprintf(error_msg, sizeof(error_msg), "BMP280_ERROR_CODE: 0x%02X\r\n", error);
+
+	  uart_send(error_msg);
+  }
+
 
   /* USER CODE END 2 */
 
