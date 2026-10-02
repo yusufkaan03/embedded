@@ -161,23 +161,6 @@ typedef struct
 }BMP280_t;
 
 
-
-/*bool forcedTemp(BMP280_t *BMP280, int32_t temp);
-
-bool forcedPress(BMP280_t *BMP280, uint32_t press);
-
-bool forcedMeasure(BMP280_t *BMP280, int32_t temp, uint32_t press);
-
-bool resetSensor(BMP280_t *BMP280);
-
-BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress);
-
-BMP280_Status BMP280_ParseCalibration(BMP280_t *BMP280, const BMP280_CalibrationRaw *raw_calibration);
-
-BMP280_Status BMP280_ParseRawData(const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data);
-
-BMP280_Error_t BMP280_Error_Handler(void);*/
-
 bool readChipId(BMP280_t *BMP280, uint8_t *chip_id);
 
 BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress);
@@ -185,8 +168,6 @@ BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t a
 bool fastPress(BMP280_t *BMP280, uint32_t *press);
 
 bool fastTemp(BMP280_t *BMP280, int32_t *temp);
-
-
 
 #endif /* INC_BMP280_H_ */
 

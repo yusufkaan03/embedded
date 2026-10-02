@@ -125,7 +125,6 @@ void ReadControlRegisters(bool uart_write)
 	}
 }
 
-
 static bool WriteRegister(uint8_t address, uint8_t data)
 {
 	if(HAL_I2C_Mem_Write(&hi2c1, 0x76 << 1, address, I2C_MEMADD_SIZE_8BIT, &data, 1U, 100) == HAL_OK)
@@ -154,92 +153,6 @@ static bool WriteRegister(uint8_t address, uint8_t data)
 		return false;
 	}
 }
-
-/*void ReadRaw(void)
-{
-	BMP280_DataRaw data_raw;
-	BMP280_UncompensatedData uncompensated_data;
-	BMP280_Status parse_status;
-
-	uint8_t f7;
-	uint8_t fa;
-
-	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, &f7, 1U, 100) == HAL_OK)
-	{
-		if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xFA, I2C_MEMADD_SIZE_8BIT, &fa, 1U, 100) == HAL_OK)
-		{
-			char buffer[50];
-
-			snprintf(buffer, sizeof(buffer), "MEM_F7_FA: 0x%02X 0x%02X\r\n", f7, fa);
-
-			uart_send(buffer);
-		}
-	}
-
-	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0xF7, I2C_MEMADD_SIZE_8BIT, data_raw.bytes, BMP280_RAW_DATA_LENGTH, 100) == HAL_OK)
-	{
-		parse_status = BMP280_ParseRawData(&data_raw, &uncompensated_data);
-
-		if(parse_status == BMP280_STATUS_OK)
-		{
-			char uncompensated_msg[50];
-
-			snprintf(uncompensated_msg, sizeof(uncompensated_msg), "TEMPERATURE_RAW: %u\r\nPRESSURE_RAW: %u\r\n",
-					(unsigned int)(uint32_t)uncompensated_data.adc_temperature,
-					(unsigned int)(uint32_t)uncompensated_data.adc_pressure);
-
-			uart_send(uncompensated_msg);
-
-		}
-	}
-}*/
-
-/*void readCalbData(void)
-{
-
-	BMP280_CalibrationRaw raw_calibration;
-	BMP280_CalibrationData calibration_data;
-	BMP280_Status parse_status;
-
-
-	if(HAL_I2C_Mem_Read(&hi2c1, 0x76 << 1, 0x88, I2C_MEMADD_SIZE_8BIT, raw_calibration.bytes, BMP280_CALIBRATION_DATA_LENGTH, 100) == HAL_OK)
-	{
-		parse_status = BMP280_ParseCalibration(&raw_calibration, &calibration_data);
-		if(parse_status == BMP280_STATUS_OK)
-		{
-			char temperature_msg[150];
-			char pressure_msg[180];
-
-			snprintf(temperature_msg, sizeof(temperature_msg),
-					"CALIB_T_HEX: T1=0x%04X T2=0x%04X T3=0x%04X\r\n"
-					"CALIB_T_DEC: T1=%u T2=%d T3=%d\r\n",
-					(unsigned int)(uint16_t)calibration_data.dig_T1,
-					(unsigned int)(uint16_t)calibration_data.dig_T2,
-					(unsigned int)(uint16_t)calibration_data.dig_T3,
-					(unsigned int)(uint16_t)calibration_data.dig_T1,
-					(int16_t)calibration_data.dig_T2,
-					(int16_t)calibration_data.dig_T3);
-
-			snprintf(pressure_msg, sizeof(pressure_msg),
-					"CALIB_P1_DEC: P1=%u P2=%d P3=%d\r\n"
-					"CALIB_P2_DEC: P4=%d P5=%d P6=%d\r\n"
-					"CALIB_P3_DEC: P7=%d P8=%d P9=%d\r\n",
-					(unsigned int)(uint16_t)calibration_data.dig_P1,
-					(int16_t)calibration_data.dig_P2,
-					(int16_t)calibration_data.dig_P3,
-					(int16_t)calibration_data.dig_P4,
-					(int16_t)calibration_data.dig_P5,
-					(int16_t)calibration_data.dig_P6,
-					(int16_t)calibration_data.dig_P7,
-					(int16_t)calibration_data.dig_P8,
-					(int16_t)calibration_data.dig_P9);
-
-
-			uart_send(temperature_msg);
-			uart_send(pressure_msg);
-		}
-	}
-}*/
 
 /* USER CODE END 0 */
 
@@ -354,86 +267,9 @@ int main(void)
 
 		  ReadControlRegisters(true);
 	  }
-  }/*
-
-
-  char measuring_start_msg[] = "\r\nMEASURING_START\r\n";
-  uart_send(measuring_start_msg);
-
-  if(WriteRegister(0xF4U, 0x25U))
-  {
-	  HAL_Delay(5);
-
-	  uint8_t measuring = f3 & 0x08U;
-	  uint32_t last_time = HAL_GetTick();
-
-	  do
-	  {
-		  ReadControlRegisters(false);
-		  measuring = f3 & 0x08U;
-
-	  } while(measuring != 0U && (HAL_GetTick() - last_time) < 20U);
-
-	  if(measuring == 0U)
-	  {
-	  	  char measuring_finish_msg[] = "MEASURING_FINISH\r\n";
-	  	  uart_send(measuring_finish_msg);
-
-	  	  ReadControlRegisters(true);
-	  	  ReadRaw();
-
-	  	readCalbData();
-	    }
-
-	  else
-	  {
-		  char measuring_timeout_msg[] = "MEASURING_TIMEOUT\r\n";
-		  uart_send(measuring_timeout_msg);
-
-	 	  ReadControlRegisters(true);
-	  	  ReadRaw();
-	  }
   }
 
-  BMP280_t BMP280;
-
-
-  if(BMP280_Init(&BMP280, &hi2c1, 0x76U) != BMP280_READY)
-  {
-	  uint8_t error = BMP280_Error_Handler();
-	  char error_msg[50];
-
-	  snprintf(error_msg, sizeof(error_msg), "BMP280_ERROR_CODE: 0x%02X\r\n", error);
-
-	  uart_send(error_msg);
-  }
-
-  int32_t temp = 0U;
-  uint32_t press = 0U;
-  if(forcedMeasure(&BMP280, temp, press) == false)
-  {
-	  uint8_t error = BMP280_Error_Handler();
-	  char error_msg[50];
-
-	  snprintf(error_msg, sizeof(error_msg), "BMP280_ERROR_CODE: 0x%02X\r\n", error);
-	  uart_send(error_msg);
-  }
-
-  char response[100];
-
-  snprintf(response, sizeof(response), "TEPERATURE: %ldDegC\r\nPRESSURE: %luP\r\n", temp, press);
-
-  uart_send(response);
-
-  int16_t deneme = (int16_t)BMP280.CalibData.dig_P9;
-
-  char deneme1[50];
-
-  snprintf(deneme1, sizeof(deneme1), "%d\r\n", deneme);
-
-  uart_send(deneme1);*/
-
-  BMP280_t BMP280;
+  BMP280_t BMP280 = {0};
 
   uint8_t status = BMP280_Init(&BMP280, &hi2c1, 0x76U);
 
@@ -518,8 +354,8 @@ int main(void)
 
   int32_t temp;
   uint32_t press;
-  fastTemp(&BMP280, &temp);
-  fastPress(&BMP280, &press);
+  bool temp_ok = fastTemp(&BMP280, &temp);
+  bool press_ok = fastPress(&BMP280, &press);
 
   uint32_t tempuc = BMP280.uc.adc_temperature;
   uint32_t pressuc = BMP280.uc.adc_pressure;
@@ -529,11 +365,37 @@ int main(void)
 
   snprintf(response, sizeof(response), "TEMPERATURE: %ldDegC\r\nPRESSURE: %luP\r\n", temp, press);
 
-  snprintf(responseuc, sizeof(responseuc), "TempUc: %ld\r\nPressUc: %lu", tempuc, pressuc);
+  snprintf(responseuc, sizeof(responseuc), "TempUc: %ld\r\nPressUc: %lu\r\n", tempuc, pressuc);
+
+  if(temp_ok)
+  {
+	  uart_send("TEMP_OK ");
+  }
+  else
+  {
+	  uart_send("TEMP_FALSE ");
+  }
+
+  if(press_ok)
+  {
+	  uart_send("PRESS_OK\r\n");
+  }
+  else
+  {
+	  uart_send("PRESS_FALSE\r\n");
+  }
 
   uart_send(response);
 
   uart_send(responseuc);
+
+  char error[50];
+
+  snprintf(error, sizeof(error), "HATA: %x", BMP280.Error);
+
+  uart_send(error);
+
+
 
 
 
