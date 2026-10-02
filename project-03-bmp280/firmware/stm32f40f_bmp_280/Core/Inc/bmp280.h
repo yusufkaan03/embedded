@@ -31,27 +31,31 @@
 #define BMP280_REG_TEMP_LSB		0xFB
 #define BMP280_REG_TEMP_XLSB	0xFC
 
+#define BMP280_CALIB_DATA_00	0X88
+
 #define BMP280_RESET_VALUE		0xB6
 
 typedef enum
 {
-	BMP280_WAIT_INIT,
-	BMP280_ADRESS_OK,
-	BMP280_CHIP_ID_OK,
-	BMP280_RESET_OK,
-	BMP280_CALIB_DATA_OK,
-	BMP280_READY
+	BMP280_WAIT,
+	BMP280_ADRESS,
+	BMP280_CHIPID,
+	BMP280_RESET,
+	BMP280_CALIB_DATA,
+	BMP280_READY,
+	ERROR_BMP280_NULL_POINTER,
 }BMP280_Init_t;
 
 typedef enum
 {
-	ERROR_NO					= 0x00U,
-	ERROR_INIT_I2C_ADRESS		= 0xA0U,
-	ERROR_INIT_INVALID_CHIP_ID	= 0xA1U,
-	ERROR_INIT_RESET			= 0xA2U,
-	ERROR_INIT_PARSE_CALIB		= 0xA3U,
-	ERROR_READ_REGISTER			= 0xB0U,
-	ERROR_WRITE_REGISTER		= 0xB1U,
+	ERROR_NO				= 0x00U,
+	ERROR_I2C_ADRESS		= 0xA0U,
+	ERROR_INVALID_CHIP_ID	= 0xA1U,
+	ERROR_PARSE_CALIB		= 0xA3U,
+	ERROR_NULL_POINTER		= 0xA4U,
+	ERROR_READ_REGISTER		= 0xB0U,
+	ERROR_WRITE_REGISTER	= 0xB1U,
+	ERROR_TIMEOUT			= 0xB2U,
 }BMP280_Error_t;
 
 typedef struct
@@ -118,25 +122,10 @@ typedef struct
 	BMP280_StandbTime	stby_t;
 }BMP280_Parameters_t;
 
-
-typedef struct
-{
-	I2C_HandleTypeDef 		*hi2c;
-	uint8_t 				BMP280_Adress;
-	BMP280_CalibrationData 	CalibData;
-	BMP280_Parameters_t		Params;
-}BMP280_t;
-
 typedef struct
 {
 	uint8_t bytes[BMP280_CALIBRATION_DATA_LENGTH];
 }BMP280_CalibrationRaw;
-
-typedef enum
-{
-	BMP280_STATUS_OK 			= 0,
-	BMP280_STATUS_NULL_POINTER
-}BMP280_Status;
 
 typedef struct
 {
@@ -149,21 +138,54 @@ typedef struct
 	uint32_t adc_pressure;
 }BMP280_UncompensatedData;
 
+typedef enum
+{
+	BMP280_STATUS_WAIT			= 0x00U,
+	BMP280_SATUS_INIT			= 0x01U,
+	BMP280_STSTUS_OK			= 0xAAU,
+	BMP280_STATUS_FAST_TEMP		= 0xB0U,
+	BMP280_STATUS_FAST_PRESS	= 0xB1U,
+	BMP280_STATUS_ERROR			= 0xFFU,
+}BMP280_Status_t;
+
+typedef struct
+{
+	I2C_HandleTypeDef 		*hi2c;
+	uint8_t 				BMP280_Adress;
+	uint8_t					BMP280_ChipId;
+	BMP280_CalibrationData 	CalibData;
+	BMP280_Parameters_t		Params;
+	BMP280_Status_t			Status;
+	BMP280_Error_t			Error;
+	BMP280_UncompensatedData uc;
+}BMP280_t;
+
+
+
+/*bool forcedTemp(BMP280_t *BMP280, int32_t temp);
+
+bool forcedPress(BMP280_t *BMP280, uint32_t press);
+
+bool forcedMeasure(BMP280_t *BMP280, int32_t temp, uint32_t press);
 
 bool resetSensor(BMP280_t *BMP280);
 
-bool BMP280_Params(BMP280_t *BMP280, BMP280_Mode mode, BMP280_Filter filter,
-		BMP280_Oversampling os_temp, BMP280_Oversampling os_press, BMP280_StandbTime time);
-
-bool BMP280_ForceMeasur(BMP280_t *BMP280, BMP280_Oversampling os_temp, BMP280_Oversampling os_press, BMP280_Filter filter);
-
 BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress);
 
-BMP280_Status BMP280_ParseCalibration(const BMP280_CalibrationRaw *raw_calibration, BMP280_CalibrationData *calibration_data);
+BMP280_Status BMP280_ParseCalibration(BMP280_t *BMP280, const BMP280_CalibrationRaw *raw_calibration);
 
 BMP280_Status BMP280_ParseRawData(const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data);
 
-BMP280_Error_t BMP280_Error_Handler(void);
+BMP280_Error_t BMP280_Error_Handler(void);*/
+
+bool readChipId(BMP280_t *BMP280, uint8_t *chip_id);
+
+BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress);
+
+bool fastPress(BMP280_t *BMP280, uint32_t *press);
+
+bool fastTemp(BMP280_t *BMP280, int32_t *temp);
+
 
 
 #endif /* INC_BMP280_H_ */
