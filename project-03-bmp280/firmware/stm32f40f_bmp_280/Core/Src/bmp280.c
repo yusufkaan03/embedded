@@ -7,11 +7,9 @@
 
 #include "bmp280.h"
 
-static volatile int32_t t_fine;
-
 static bool readRegister(BMP280_t *BMP280, uint8_t reg_id, uint8_t *var, uint8_t length)
 {
-	if(HAL_I2C_Mem_Read(BMP280->hi2c, BMP280->BMP280_Adress, reg_id, I2C_MEMADD_SIZE_8BIT, var, length, 100U) != HAL_OK)
+	if(HAL_I2C_Mem_Read(BMP280->hi2c, BMP280->BMP280_Address, reg_id, I2C_MEMADD_SIZE_8BIT, var, length, 100U) != HAL_OK)
 	{
 		BMP280->Error = ERROR_READ_REGISTER;
 		return false;
@@ -22,7 +20,7 @@ static bool readRegister(BMP280_t *BMP280, uint8_t reg_id, uint8_t *var, uint8_t
 
 static bool writeRegister(BMP280_t *BMP280, uint8_t reg_id, uint8_t *var, uint8_t length)
 {
-	if(HAL_I2C_Mem_Write(BMP280->hi2c, BMP280->BMP280_Adress, reg_id, I2C_MEMADD_SIZE_8BIT, var, length, 100U) != HAL_OK)
+	if(HAL_I2C_Mem_Write(BMP280->hi2c, BMP280->BMP280_Address, reg_id, I2C_MEMADD_SIZE_8BIT, var, length, 100U) != HAL_OK)
 	{
 		BMP280->Error = ERROR_WRITE_REGISTER;
 		return false;
@@ -67,37 +65,24 @@ static bool BMP280_ParseCalibration(BMP280_t *BMP280, const BMP280_CalibrationRa
 
 static int32_t BMP280_compensate_T(BMP280_t *BMP280, int32_t adc_T)
 {
-	int32_t var1, var2, T;
+	int32_t var1, var2;
 	var1 = ((((adc_T >> 3) - ((int32_t)BMP280->CalibData.dig_T1 << 1))) * ((int32_t)BMP280->CalibData.dig_T2)) >> 11;
 	var2 = (((((adc_T>>4) - ((int32_t)BMP280->CalibData.dig_T1)) * ((adc_T>>4) - ((int32_t)BMP280->CalibData.dig_T1))) >> 12) *
 	((int32_t)BMP280->CalibData.dig_T3)) >> 14;
 
-	t_fine = var1 + var2;
+	BMP280->Measure_Data.t_fine = var1 + var2;
 
-	T = (t_fine * 5 + 128) >> 8;
+	BMP280->Measure_Data.temperature_x100 = (BMP280->Measure_Data.t_fine * 5 + 128) >> 8;
 
-	return T;
+	return BMP280->Measure_Data.temperature_x100;
 }
-
-static int32_t bmp280_compensate_T_int32(BMP280_t *BMP280, int32_t adc_T)
-{
-	int32_t var1, var2, T;
-	var1 = ((((adc_T>>3) - ((int32_t)BMP280->CalibData.dig_T1<<1))) * ((int32_t)BMP280->CalibData.dig_T2)) >> 11;
-	var2 = (((((adc_T>>4) - ((int32_t)BMP280->CalibData.dig_T1)) * ((adc_T>>4) - ((int32_t)BMP280->CalibData.dig_T1)))
-			>> 12) *
-			((int32_t)BMP280->CalibData.dig_T3)) >> 14;
-	t_fine = var1 + var2;
-	T = (t_fine * 5 + 128) >> 8;
-	return T;
-}
-
 
 static uint32_t BMP280_compensate_P(BMP280_t *BMP280, uint32_t adc_P)
 {
 	int32_t var1, var2;
 	uint32_t p;
 
-	var1 = (((int32_t)t_fine) >> 1) - (int32_t)64000;
+	var1 = (((int32_t)BMP280->Measure_Data.t_fine) >> 1) - (int32_t)64000;
 	var2 = (((var1 >> 2) * (var1 >> 2)) >> 11 ) * ((int32_t)BMP280->CalibData.dig_P6);
 	var2 = var2 + ((var1 * ((int32_t)BMP280->CalibData.dig_P5)) << 1);
 	var2 = (var2 >> 2) + (((int32_t)BMP280->CalibData.dig_P4) << 16);
@@ -123,9 +108,9 @@ static uint32_t BMP280_compensate_P(BMP280_t *BMP280, uint32_t adc_P)
 
 	var1 = (((int32_t)BMP280->CalibData.dig_P9) * ((int32_t)(((p >> 3) * (p >> 3)) >> 13))) >> 12;
 	var2 = (((int32_t)(p >> 2)) * ((int32_t)BMP280->CalibData.dig_P8)) >> 13;
-	p = (uint32_t)((int32_t)p + ((var1 + var2 + BMP280->CalibData.dig_P7) >> 4));
+	BMP280->Measure_Data.pressure = (uint32_t)((int32_t)p + ((var1 + var2 + BMP280->CalibData.dig_P7) >> 4));
 
-	return p;
+	return BMP280->Measure_Data.pressure;
 }
 
 static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data)
@@ -144,39 +129,8 @@ static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw
 	return true;
 }
 
-static bool BMP280_Workflow(BMP280_t *BMP280, uint8_t reset)
+static bool BMP280_Workflow(BMP280_t *BMP280)
 {
-	if(reset == BMP280_RESET_VALUE)
-	{
-		if(writeRegister(BMP280, BMP280_REG_RESET, &reset, 1U) != true)
-		{
-			return false;
-		}
-	}
-	else
-	{
-		uint8_t f4_reg_value;
-		uint8_t f5_reg_value;
-
-		f4_reg_value = ((uint8_t)(BMP280->Params.osrs_t) << 5U) | ((uint8_t)(BMP280->Params.osrs_p) << 2U)|
-				((uint8_t)(BMP280->Params.mode));
-		f5_reg_value = (uint8_t)(BMP280->Params.filter) << 2U;
-
-
-		if(writeRegister(BMP280, BMP280_REG_CTRL_MEAS, &f4_reg_value, 1U) != true)
-		{
-			return false;
-		}
-		else
-		{
-			if(writeRegister(BMP280, BMP280_REG_CONFIG, &f5_reg_value, 1U) != true)
-			{
-				return false;
-			}
-		}
-
-	}
-
 	uint8_t status_reg_value;
 	uint8_t measuring;
 	uint8_t im_update;
@@ -198,46 +152,58 @@ static bool BMP280_Workflow(BMP280_t *BMP280, uint8_t reset)
 		return false;
 	}
 
-	uint8_t press_msb;
-	uint8_t temp_msb;
+	return true;
 
-	readRegister(BMP280, BMP280_REG_PRESS_MSB, &press_msb, 1U);
-	readRegister(BMP280, BMP280_REG_TEMP_MSB, &temp_msb, 1U);
+}
 
-	if(reset == BMP280_RESET_VALUE)
-	{
-		if(press_msb == 0x80 && temp_msb == 0x80)
+static BMP280_Measure_Status_T MeasuringHandler(BMP280_t *BMP280, BMP280_Measure_Status_T *status)
+{
+	uint8_t f4_reg_value;
+	uint8_t f5_reg_value;
+
+	f4_reg_value = ((uint8_t)(BMP280->Params.osrs_t) << 5U) | ((uint8_t)(BMP280->Params.osrs_p) << 2U)|
+					((uint8_t)(BMP280->Params.mode));
+	f5_reg_value = (uint8_t)(BMP280->Params.filter) << 2U;
+
+	*status = WRITE_CALIB_DATA;
+
+	if(writeRegister(BMP280, BMP280_REG_CONFIG, &f5_reg_value, 1U) != true)
 		{
-			return true;
+		return *status;
+		}
+	else
+	{
+		if(writeRegister(BMP280, BMP280_REG_CTRL_MEAS, &f4_reg_value, 1U) != true)
+		{
+			return *status;
 		}
 		else
 		{
-			return false;
+			*status = WAIT_FINISH_MEASURING;
 		}
 	}
 
-	else
+	if(*status == WAIT_FINISH_MEASURING)
 	{
-		return true;
+		if(BMP280_Workflow(BMP280) != true)
+		{
+			return 	*status;
+		}
+		else
+		{
+			*status = READ_RAW_DATA;
+		}
 	}
 
+	return *status;
 }
 
-static bool MeasuringHandler(BMP280_t *BMP280)
+static BMP280_Measure_Status_T Measuring(BMP280_t *BMP280, int32_t *temp, uint32_t *press, BMP280_Measure_Status_T *status)
 {
-	if(BMP280_Workflow(BMP280, 0U) != true)
-	{
-		return false;
-	}
 
-	return true;
-}
-
-static bool Measuring(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
-{
-	if(MeasuringHandler(BMP280) != true)
+	if(MeasuringHandler(BMP280, status) != READ_RAW_DATA)
 	{
-		return false;
+		return *status;
 	}
 
 	BMP280_DataRaw data_raw;
@@ -245,34 +211,82 @@ static bool Measuring(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
 
 	if(readRegister(BMP280, BMP280_REG_PRESS_MSB, data_raw.bytes, BMP280_RAW_DATA_LENGTH) != true)
 	{
-		return false;
+		return READ_RAW_DATA;
 	}
-
-	if(BMP280_ParseRawData(BMP280, &data_raw, &uncompensated_data) != true)
+	else
 	{
-		return false;
+		*status = PARSE_RAW_DATA;
 	}
 
-	BMP280->uc.adc_pressure = uncompensated_data.adc_pressure;
-	BMP280->uc.adc_temperature = uncompensated_data.adc_temperature;
+	if(*status == PARSE_RAW_DATA)
+	{
+		if(BMP280_ParseRawData(BMP280, &data_raw, &uncompensated_data) != true)
+		{
+			return *status;
+		}
+		else
+		{
+			*status = COMPANSE_T;
+		}
+	}
+	else
+	{
+		return *status;
+	}
 
-	*temp = BMP280_compensate_T(BMP280, uncompensated_data.adc_temperature);
+	BMP280->Measure_Data.Uncompensated_Data.adc_pressure = uncompensated_data.adc_pressure;
+	BMP280->Measure_Data.Uncompensated_Data.adc_temperature = uncompensated_data.adc_temperature;
 
-	if(BMP280->Params.osrs_p != BMP280_MESURE_SKIPPED)
+	if(*status == COMPANSE_T)
+	{
+		*temp = BMP280_compensate_T(BMP280, uncompensated_data.adc_temperature);
+
+		if(BMP280->Params.osrs_p != BMP280_MEASURE_SKIPPED)
+		{
+			*status = COMPANSE_P;
+		}
+		else
+		{
+			*status = MEASURE_OK;
+		}
+	}
+
+	if(*status == COMPANSE_P)
 	{
 		*press = BMP280_compensate_P(BMP280, uncompensated_data.adc_pressure);
+		*status = MEASURE_OK;
 	}
 
-	return true;
-
+	return *status;
 }
-
-
 
 bool BMP280_Reset(BMP280_t *BMP280)
 {
+	uint8_t reset_value = BMP280_RESET_VALUE;
+	if(writeRegister(BMP280, BMP280_REG_RESET, &reset_value, 1U) != true)
+	{
+		return false;
+	}
 
-	return BMP280_Workflow(BMP280, BMP280_RESET_VALUE);
+	if(BMP280_Workflow(BMP280) != true)
+	{
+		return false;
+	}
+
+	uint8_t press_msb;
+	uint8_t temp_msb;
+
+	readRegister(BMP280, BMP280_REG_PRESS_MSB, &press_msb, 1U);
+	readRegister(BMP280, BMP280_REG_TEMP_MSB, &temp_msb, 1U);
+
+	if(press_msb == 0x80 && temp_msb == 0x80)
+		{
+		return true;
+		}
+	else
+	{
+		return false;
+	}
 }
 
 
@@ -281,29 +295,29 @@ bool readChipId(BMP280_t *BMP280, uint8_t *chip_id)
 	return readRegister(BMP280, BMP280_REG_CHIP_ID, chip_id, 1U);
 }
 
-BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress)
+BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t Address)
 {
-	BMP280_Init_t initStatus = BMP280_WAIT;
+	BMP280_Init_Status_t initStatus = BMP280_START;
 
 	if(BMP280 == NULL)
 	{
-		return ERROR_BMP280_NULL_POINTER;
+		return ERROR_BMP280_NULL_POINTER_I;
 	}
 
-	BMP280->Status = BMP280_SATUS_INIT;
+	BMP280->Status = BMP280_STATUS_INIT;
 	BMP280->hi2c = p_hi2c;
-	BMP280->BMP280_Adress = (adress << 1U);
+	BMP280->BMP280_Address = (Address << 1U);
 
-	initStatus = BMP280_ADRESS;
+	initStatus = BMP280_ADDRESS;
 
-	if(HAL_I2C_IsDeviceReady(BMP280->hi2c, BMP280->BMP280_Adress, 3U, 100) == HAL_OK)
+	if(HAL_I2C_IsDeviceReady(BMP280->hi2c, BMP280->BMP280_Address, 3U, 100) == HAL_OK)
 	{
 		initStatus = BMP280_CHIPID;
 	}
 
 	else
 	{
-		BMP280->Error = ERROR_I2C_ADRESS;
+		BMP280->Error = ERROR_I2C_ADDRESS;
 		return initStatus;
 	}
 
@@ -352,57 +366,105 @@ BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t a
 			return initStatus;
 		}
 
-		initStatus = BMP280_READY;
-		BMP280->Status = BMP280_STSTUS_OK;
+		initStatus = MEASURE_OK;
+		BMP280->Status = BMP280_STATUS_WAIT;
 	}
 
 	return initStatus;
 }
 
 
-bool fastPress(BMP280_t *BMP280, uint32_t *press)
+BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press)
 {
+
 	if(BMP280->Error != ERROR_NO)
 	{
-			return false;
+		return ERROR_M;
 	}
+
+	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
 	int32_t temp = 0U;;
 	BMP280->Params.mode = BMP280_MODE_FORCE;
-	BMP280->Params.osrs_t = BMP280_MESURE_X1;
-	BMP280->Params.osrs_p = BMP280_MESURE_X2;
+	BMP280->Params.osrs_t = BMP280_MEASURE_X1;
+	BMP280->Params.osrs_p = BMP280_MEASURE_X2;
 	BMP280->Params.filter = BMP280_FILTER_X2;
 	BMP280->Status = BMP280_STATUS_FAST_PRESS;
-	if(Measuring(BMP280, &temp, press))
+	if(Measuring(BMP280, &temp, press, &measure_Status))
 	{
-		BMP280->Status = BMP280_STSTUS_OK;
-		return true;
+		BMP280->Status = BMP280_STATUS_WAIT;
 	}
 
-	return false;
+	return measure_Status;
 }
 
-bool fastTemp(BMP280_t *BMP280, int32_t *temp)
+BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp)
 {
 	if(BMP280->Error != ERROR_NO)
 	{
-		return false;
-	}
-	uint32_t press = 0U;
-	BMP280->Params.mode = BMP280_MODE_FORCE;
-	BMP280->Params.osrs_t = BMP280_MESURE_X16;
-	BMP280->Params.osrs_p = BMP280_MESURE_SKIPPED;
-	BMP280->Params.filter = BMP280_FILTER_X2;
-	BMP280->Status = BMP280_STATUS_FAST_TEMP;
-	if(Measuring(BMP280, temp, &press))
-	{
-		BMP280->Status = BMP280_STSTUS_OK;
-		return true;
+		return ERROR_M;
 	}
 
-	return false;
+	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
+	uint32_t press = 0U;
+	BMP280->Params.mode = BMP280_MODE_FORCE;
+	BMP280->Params.osrs_t = BMP280_MEASURE_X16;
+	BMP280->Params.osrs_p = BMP280_MEASURE_SKIPPED;
+	BMP280->Params.filter = BMP280_FILTER_X2;
+	BMP280->Status = BMP280_STATUS_FAST_TEMP;
+	if(Measuring(BMP280, temp, &press, &measure_Status))
+	{
+		BMP280->Status = BMP280_STATUS_WAIT;
+	}
+
+	return measure_Status;
+}
+
+BMP280_Measure_Status_T fastMeasur(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
+{
+	if(BMP280->Error != ERROR_NO)
+	{
+		return ERROR_M;
+	}
+
+	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
+	BMP280->Params.mode = BMP280_MODE_FORCE;
+	BMP280->Params.osrs_t = BMP280_MEASURE_X8;
+	BMP280->Params.osrs_p = BMP280_MEASURE_X8;
+	BMP280->Params.filter = BMP280_FILTER_X2;
+	BMP280->Status = BMP280_STATUS_FAST_MEASUR;
+	if(Measuring(BMP280, temp, press, &measure_Status))
+	{
+		BMP280->Status = BMP280_STATUS_WAIT;
+	}
+
+	return measure_Status;
 }
 
 
+uint16_t error_Handler(BMP280_t *BMP280, uint8_t status)
+{
+	uint16_t resopnse = ((uint16_t)(BMP280->Status) << 8) | ((uint16_t)status);
+
+	return resopnse;
+}
 
 
 

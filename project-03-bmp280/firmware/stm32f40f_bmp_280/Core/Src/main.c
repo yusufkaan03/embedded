@@ -281,7 +281,7 @@ int main(void)
 
   uint8_t reg_id;
 
-  HAL_I2C_Mem_Read(BMP280.hi2c, BMP280.BMP280_Adress, BMP280_REG_TEMP_MSB, I2C_MEMADD_SIZE_8BIT, &reg_id, 1U, 100);
+  HAL_I2C_Mem_Read(BMP280.hi2c, BMP280.BMP280_Address, BMP280_REG_TEMP_MSB, I2C_MEMADD_SIZE_8BIT, &reg_id, 1U, 100);
 
   char chip_id_1[20];
 
@@ -354,36 +354,38 @@ int main(void)
 
   int32_t temp;
   uint32_t press;
-  bool temp_ok = fastTemp(&BMP280, &temp);
-  bool press_ok = fastPress(&BMP280, &press);
+  uint8_t temp_ok = fastTemp(&BMP280, &temp);
+  char temp_response[50];
+  snprintf(temp_response, sizeof(temp_response), "%x%x\r\n", BMP280.Error, temp_ok);
+  uart_send(temp_response);
 
-  uint32_t tempuc = BMP280.uc.adc_temperature;
-  uint32_t pressuc = BMP280.uc.adc_pressure;
+  uint8_t press_ok = fastPress(&BMP280, &press);
+  char press_response[50];
+  snprintf(press_response, sizeof(press_response), "%x%x\r\n", BMP280.Error, press_ok);
+  uart_send(press_response);
+
+  int32_t f_temp;
+  uint32_t f_press;
+
+  uint8_t full_ok = fastMeasur(&BMP280, &f_temp, &f_press);
+  char f_response[50];
+  snprintf(f_response, sizeof(f_response), "%x%x\r\n", BMP280.Error, full_ok);
+  uart_send(f_response);
+
+  uint32_t tempuc = BMP280.Measure_Data.Uncompensated_Data.adc_temperature;
+  uint32_t pressuc = BMP280.Measure_Data.Uncompensated_Data.adc_temperature;
 
   char response[100];
   char responseuc[100];
+  char responsef[100];
+
+  snprintf(responsef, sizeof(responsef), "TEMPERATURE_f: %ldDegC\r\nPRESSURE_f: %luP\r\n", f_temp, f_press);
 
   snprintf(response, sizeof(response), "TEMPERATURE: %ldDegC\r\nPRESSURE: %luP\r\n", temp, press);
 
   snprintf(responseuc, sizeof(responseuc), "TempUc: %ld\r\nPressUc: %lu\r\n", tempuc, pressuc);
 
-  if(temp_ok)
-  {
-	  uart_send("TEMP_OK ");
-  }
-  else
-  {
-	  uart_send("TEMP_FALSE ");
-  }
-
-  if(press_ok)
-  {
-	  uart_send("PRESS_OK\r\n");
-  }
-  else
-  {
-	  uart_send("PRESS_FALSE\r\n");
-  }
+  uart_send(responsef);
 
   uart_send(response);
 
@@ -394,10 +396,6 @@ int main(void)
   snprintf(error, sizeof(error), "HATA: %x", BMP280.Error);
 
   uart_send(error);
-
-
-
-
 
   /* USER CODE END 2 */
 

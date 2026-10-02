@@ -37,19 +37,33 @@
 
 typedef enum
 {
-	BMP280_WAIT,
-	BMP280_ADRESS,
-	BMP280_CHIPID,
-	BMP280_RESET,
-	BMP280_CALIB_DATA,
-	BMP280_READY,
-	ERROR_BMP280_NULL_POINTER,
-}BMP280_Init_t;
+	BMP280_START				= 0x01U,
+	BMP280_ADDRESS				= 0x02U,
+	BMP280_CHIPID				= 0xA1U,
+	BMP280_RESET				= 0xB1U,
+	BMP280_CALIB_DATA			= 0xC1U,
+	INIT_OK						= 0xAAU,
+	ERROR_BMP280_NULL_POINTER_I	= 0xFFU,
+}BMP280_Init_Status_t;
+
+typedef enum
+{
+	START_MEASURE				= 0x01U,
+	WRITE_CALIB_DATA			= 0xB1U,
+	WAIT_FINISH_MEASURING		= 0xC1U,
+	READ_RAW_DATA				= 0xA1U,
+	PARSE_RAW_DATA				= 0xD1U,
+	COMPANSE_T					= 0xE1U,
+	COMPANSE_P					= 0xE2U,
+	MEASURE_OK					= 0XAAU,
+	ERROR_M						= 0xDDU,
+	ERROR_BMP280_NULL_POINTER_M	= 0xFF,
+}BMP280_Measure_Status_T;
 
 typedef enum
 {
 	ERROR_NO				= 0x00U,
-	ERROR_I2C_ADRESS		= 0xA0U,
+	ERROR_I2C_ADDRESS		= 0xA0U,
 	ERROR_INVALID_CHIP_ID	= 0xA1U,
 	ERROR_PARSE_CALIB		= 0xA3U,
 	ERROR_NULL_POINTER		= 0xA4U,
@@ -98,12 +112,12 @@ typedef enum
 
 typedef enum
 {
-	BMP280_MESURE_SKIPPED	= 0b000U,
-	BMP280_MESURE_X1		= 0b001U,
-	BMP280_MESURE_X2		= 0b010U,
-	BMP280_MESURE_X4		= 0b011U,
-	BMP280_MESURE_X8		= 0b100U,
-	BMP280_MESURE_X16		= 0b101U,
+	BMP280_MEASURE_SKIPPED	= 0b000U,
+	BMP280_MEASURE_X1		= 0b001U,
+	BMP280_MEASURE_X2		= 0b010U,
+	BMP280_MEASURE_X4		= 0b011U,
+	BMP280_MEASURE_X8		= 0b100U,
+	BMP280_MEASURE_X16		= 0b101U,
 }BMP280_Oversampling;
 
 typedef enum
@@ -141,33 +155,45 @@ typedef struct
 typedef enum
 {
 	BMP280_STATUS_WAIT			= 0x00U,
-	BMP280_SATUS_INIT			= 0x01U,
-	BMP280_STSTUS_OK			= 0xAAU,
+	BMP280_STATUS_INIT			= 0x01U,
 	BMP280_STATUS_FAST_TEMP		= 0xB0U,
 	BMP280_STATUS_FAST_PRESS	= 0xB1U,
-	BMP280_STATUS_ERROR			= 0xFFU,
+	BMP280_STATUS_FAST_MEASUR	= 0xB2U,
 }BMP280_Status_t;
 
 typedef struct
 {
+	int32_t 					temperature_x100;
+	uint32_t 					pressure;
+	BMP280_UncompensatedData	Uncompensated_Data;
+	int32_t 					t_fine;
+
+}BMP280_Measure_t;
+
+typedef struct
+{
 	I2C_HandleTypeDef 		*hi2c;
-	uint8_t 				BMP280_Adress;
+	uint8_t 				BMP280_Address;
 	uint8_t					BMP280_ChipId;
 	BMP280_CalibrationData 	CalibData;
 	BMP280_Parameters_t		Params;
 	BMP280_Status_t			Status;
 	BMP280_Error_t			Error;
-	BMP280_UncompensatedData uc;
+	BMP280_Measure_t		Measure_Data;
 }BMP280_t;
 
 
 bool readChipId(BMP280_t *BMP280, uint8_t *chip_id);
 
-BMP280_Init_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t adress);
+BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t address);
 
-bool fastPress(BMP280_t *BMP280, uint32_t *press);
+BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press);
 
-bool fastTemp(BMP280_t *BMP280, int32_t *temp);
+BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp);
+
+BMP280_Measure_Status_T fastMeasur(BMP280_t *BMP280, int32_t *temp, uint32_t *press);
+
+uint16_t error_Handler(BMP280_t *BMP280, uint8_t status);
 
 #endif /* INC_BMP280_H_ */
 
