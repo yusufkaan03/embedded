@@ -52,10 +52,6 @@
 
 /* USER CODE BEGIN PV */
 
-/*static uint8_t f3 = 0x00U;
-static uint8_t f4 = 0x00U;
-static uint8_t f5 = 0x00U;*/
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,6 +66,28 @@ void SystemClock_Config(void);
 void uart_send(char* text)
 {
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
+}
+
+void intToCharFix(int32_t varable, char *response, uint8_t buffer_size)
+{
+	char merge[15];
+
+	char sing = (varable < 0) ? '-' : ' ';
+
+	uint32_t u_varable = (varable < 0) ? -varable : varable;
+
+	snprintf(merge, sizeof(merge), "%c%lu", sing, u_varable);
+
+	snprintf(response, buffer_size, "%.3s.%s", merge, merge+3);
+}
+
+void uintToCharFix(uint32_t varable, char *response, uint8_t buffer_size)
+{
+	char convert[15];
+
+	snprintf(convert, sizeof(convert), "%lu", varable);
+
+	snprintf(response, buffer_size, "%.3s.%s", convert, convert+3);
 }
 
 /* USER CODE END 0 */
@@ -116,35 +134,44 @@ int main(void)
   BMP280_t BMP280 = {0};
 
   int32_t temp;
+  int32_t temp_f;
   uint32_t press;
-  uint8_t temp_ok = fastTemp(&BMP280, &temp);
-  char temp_response[50];
-  snprintf(temp_response, sizeof(temp_response), "%x%x\r\n", BMP280.Error, temp_ok);
-  uart_send(temp_response);
+  uint32_t press_f;
 
-  uint8_t press_ok = fastPress(&BMP280, &press);
-  char press_response[50];
-  snprintf(press_response, sizeof(press_response), "%x%x\r\n", BMP280.Error, press_ok);
-  uart_send(press_response);
+  BMP280_Init(&BMP280, &hi2c1, 0x76U);
 
-  int32_t f_temp;
-  uint32_t f_press;
+  fastTemp(&BMP280, &temp);
+  fastPress(&BMP280, &press);
+  fastMeasure(&BMP280, &temp_f, &press_f);
 
-  uint8_t full_ok = fastMeasur(&BMP280, &f_temp, &f_press);
-  char f_response[50];
-  snprintf(f_response, sizeof(f_response), "%x%x\r\n", BMP280.Error, full_ok);
-  uart_send(f_response);
+  char temp_char[15];
+  char temp_char_f[15];
+  char press_char[10];
+  char press_char_f[10];
 
-  char response[100];
-  char responsef[100];
+  intToCharFix(temp, temp_char, sizeof(temp_char));
+  intToCharFix(temp_f, temp_char_f, sizeof(temp_char_f));
 
-  snprintf(responsef, sizeof(responsef), "TEMPERATURE_f: %ldDegC\r\nPRESSURE_f: %luP\r\n", f_temp, f_press);
+  uintToCharFix(press, press_char, sizeof(press_char));
+  uintToCharFix(press_f, press_char_f, sizeof(press_char_f));
 
-  snprintf(response, sizeof(response), "TEMPERATURE: %ldDegC\r\nPRESSURE: %luP\r\n", temp, press);
+  char response[150];
+  char response_f[150];
 
-  uart_send(responsef);
+  snprintf(response, sizeof(response), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char, press_char);
+  snprintf(response_f, sizeof(response_f), "TEMPERATURE_F:%7sDegC\r\nPRESSURE_F:%10shPa\r\n", temp_char_f, press_char_f);
 
   uart_send(response);
+  uart_send(response_f);
+
+  int32_t temp_s;
+  uint32_t press_s;
+
+  char temp_char_s[15];
+  char press_char_s[15];
+  char response_s[100];
+
+  uint32_t last_time = 0U;
 
   /* USER CODE END 2 */
 
@@ -155,6 +182,20 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  if((HAL_GetTick() - last_time) >= 1000U)
+	  {
+		  fastMeasure(&BMP280, &temp_s, &press_s);
+
+		  intToCharFix(temp_s, temp_char_s, sizeof(temp_char_s));
+		  uintToCharFix(press_s, press_char_s, sizeof(press_char_s));
+
+		  snprintf(response_s, sizeof(response_s), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char_s, press_char_s);
+
+		  uart_send(response_s);
+		  uart_send("------------------------\r\n");
+
+		  last_time = HAL_GetTick();
+	  }
   }
   /* USER CODE END 3 */
 }

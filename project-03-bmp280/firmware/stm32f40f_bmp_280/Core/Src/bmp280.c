@@ -108,9 +108,9 @@ static uint32_t BMP280_compensate_P(BMP280_t *BMP280, uint32_t adc_P)
 
 	var1 = (((int32_t)BMP280->CalibData.dig_P9) * ((int32_t)(((p >> 3) * (p >> 3)) >> 13))) >> 12;
 	var2 = (((int32_t)(p >> 2)) * ((int32_t)BMP280->CalibData.dig_P8)) >> 13;
-	BMP280->Measure_Data.pressure = (uint32_t)((int32_t)p + ((var1 + var2 + BMP280->CalibData.dig_P7) >> 4));
+	BMP280->Measure_Data.pressure_pa = (uint32_t)((int32_t)p + ((var1 + var2 + BMP280->CalibData.dig_P7) >> 4));
 
-	return BMP280->Measure_Data.pressure;
+	return BMP280->Measure_Data.pressure_pa;
 }
 
 static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data)
@@ -120,7 +120,7 @@ static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw
 		return false;
 	}
 
-	uncompensated_data->adc_pressure = (uint32_t)((uint32_t)data_raw->bytes[0] << 12U |
+	uncompensated_data->adc_pressure_pa = (uint32_t)((uint32_t)data_raw->bytes[0] << 12U |
 			(uint32_t)data_raw->bytes[1] << 4U | (uint32_t)data_raw->bytes[2] >> 4U);
 
 	uncompensated_data->adc_temperature = (uint32_t)((uint32_t)data_raw->bytes[3] << 12U |
@@ -129,11 +129,13 @@ static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw
 	return true;
 }
 
-static bool BMP280_Workflow(BMP280_t *BMP280)
+static bool BMP280_Workflow(BMP280_t *BMP280, uint8_t wait_time)
 {
 	uint8_t status_reg_value;
 	uint8_t measuring;
 	uint8_t im_update;
+
+
 
 	HAL_Delay(5);
 
@@ -144,7 +146,7 @@ static bool BMP280_Workflow(BMP280_t *BMP280)
 		readRegister(BMP280, BMP280_REG_STATUS, &status_reg_value, 1U);
 		measuring = status_reg_value & 0x08U;
 		im_update = status_reg_value & 0x01U;
-	}while((measuring == 0x8U || im_update == 0x1U) && (HAL_GetTick() - last_time) < 100U);
+	}while((measuring == 0x8U || im_update == 0x1U) && (HAL_GetTick() - last_time) < wait_time);
 
 	if(measuring != 0U && im_update != 0U)
 	{
@@ -156,7 +158,7 @@ static bool BMP280_Workflow(BMP280_t *BMP280)
 
 }
 
-static BMP280_Measure_Status_T MeasuringHandler(BMP280_t *BMP280, BMP280_Measure_Status_T *status)
+static BMP280_Measure_Status_t MeasuringHandler(BMP280_t *BMP280, BMP280_Measure_Status_t *status)
 {
 	uint8_t f4_reg_value;
 	uint8_t f5_reg_value;
@@ -185,7 +187,8 @@ static BMP280_Measure_Status_T MeasuringHandler(BMP280_t *BMP280, BMP280_Measure
 
 	if(*status == WAIT_FINISH_MEASURING)
 	{
-		if(BMP280_Workflow(BMP280) != true)
+		uint8_t wait_time = ((BMP280->Params.osrs_p) * 8U) + ((BMP280->Params.osrs_t) * 8U);
+		if(BMP280_Workflow(BMP280, wait_time) != true)
 		{
 			return 	*status;
 		}
@@ -198,7 +201,7 @@ static BMP280_Measure_Status_T MeasuringHandler(BMP280_t *BMP280, BMP280_Measure
 	return *status;
 }
 
-static BMP280_Measure_Status_T Measuring(BMP280_t *BMP280, int32_t *temp, uint32_t *press, BMP280_Measure_Status_T *status)
+static BMP280_Measure_Status_t Measuring(BMP280_t *BMP280, int32_t *temp, uint32_t *press, BMP280_Measure_Status_t *status)
 {
 
 	if(MeasuringHandler(BMP280, status) != READ_RAW_DATA)
@@ -226,7 +229,7 @@ static BMP280_Measure_Status_T Measuring(BMP280_t *BMP280, int32_t *temp, uint32
 		}
 		else
 		{
-			*status = COMPANSE_T;
+			*status = COMPENSATE_T;
 		}
 	}
 	else
@@ -234,26 +237,26 @@ static BMP280_Measure_Status_T Measuring(BMP280_t *BMP280, int32_t *temp, uint32
 		return *status;
 	}
 
-	BMP280->Measure_Data.Uncompensated_Data.adc_pressure = uncompensated_data.adc_pressure;
+	BMP280->Measure_Data.Uncompensated_Data.adc_pressure_pa = uncompensated_data.adc_pressure_pa;
 	BMP280->Measure_Data.Uncompensated_Data.adc_temperature = uncompensated_data.adc_temperature;
 
-	if(*status == COMPANSE_T)
+	if(*status == COMPENSATE_T)
 	{
 		*temp = BMP280_compensate_T(BMP280, uncompensated_data.adc_temperature);
 
-		if(BMP280->Params.osrs_p != BMP280_MEASURE_SKIPPED)
-		{
-			*status = COMPANSE_P;
-		}
-		else
+		if(BMP280->Params.osrs_p == BMP280_MEASURE_SKIPPED)
 		{
 			*status = MEASURE_OK;
 		}
+		else
+		{
+			*status = COMPENSATE_P;
+		}
 	}
 
-	if(*status == COMPANSE_P)
+	if(*status == COMPENSATE_P)
 	{
-		*press = BMP280_compensate_P(BMP280, uncompensated_data.adc_pressure);
+		*press = BMP280_compensate_P(BMP280, uncompensated_data.adc_pressure_pa);
 		*status = MEASURE_OK;
 	}
 
@@ -268,7 +271,7 @@ bool BMP280_Reset(BMP280_t *BMP280)
 		return false;
 	}
 
-	if(BMP280_Workflow(BMP280) != true)
+	if(BMP280_Workflow(BMP280, BMP280_RESET_TIME) != true)
 	{
 		return false;
 	}
@@ -374,7 +377,7 @@ BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, ui
 }
 
 
-BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press)
+BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 {
 
 	if(BMP280->Error != ERROR_NO)
@@ -382,7 +385,7 @@ BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press)
 		return ERROR_M;
 	}
 
-	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
 	if(BMP280 == NULL)
 	{
@@ -403,14 +406,14 @@ BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press)
 	return measure_Status;
 }
 
-BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp)
+BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp)
 {
 	if(BMP280->Error != ERROR_NO)
 	{
 		return ERROR_M;
 	}
 
-	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
 	if(BMP280 == NULL)
 	{
@@ -419,7 +422,7 @@ BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp)
 
 	uint32_t press = 0U;
 	BMP280->Params.mode = BMP280_MODE_FORCE;
-	BMP280->Params.osrs_t = BMP280_MEASURE_X16;
+	BMP280->Params.osrs_t = BMP280_MEASURE_X2;
 	BMP280->Params.osrs_p = BMP280_MEASURE_SKIPPED;
 	BMP280->Params.filter = BMP280_FILTER_X2;
 	BMP280->Status = BMP280_STATUS_FAST_TEMP;
@@ -431,14 +434,14 @@ BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp)
 	return measure_Status;
 }
 
-BMP280_Measure_Status_T fastMeasur(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
+BMP280_Measure_Status_t fastMeasure(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
 {
 	if(BMP280->Error != ERROR_NO)
 	{
 		return ERROR_M;
 	}
 
-	BMP280_Measure_Status_T measure_Status = START_MEASURE;
+	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
 	if(BMP280 == NULL)
 	{
@@ -446,10 +449,10 @@ BMP280_Measure_Status_T fastMeasur(BMP280_t *BMP280, int32_t *temp, uint32_t *pr
 	}
 
 	BMP280->Params.mode = BMP280_MODE_FORCE;
-	BMP280->Params.osrs_t = BMP280_MEASURE_X8;
-	BMP280->Params.osrs_p = BMP280_MEASURE_X8;
+	BMP280->Params.osrs_t = BMP280_MEASURE_X2;
+	BMP280->Params.osrs_p = BMP280_MEASURE_X2;
 	BMP280->Params.filter = BMP280_FILTER_X2;
-	BMP280->Status = BMP280_STATUS_FAST_MEASUR;
+	BMP280->Status = BMP280_STATUS_FAST_MEASURE;
 	if(Measuring(BMP280, temp, press, &measure_Status))
 	{
 		BMP280->Status = BMP280_STATUS_WAIT;

@@ -34,6 +34,7 @@
 #define BMP280_CALIB_DATA_00	0X88
 
 #define BMP280_RESET_VALUE		0xB6
+#define BMP280_RESET_TIME		0x1E
 
 typedef enum
 {
@@ -53,12 +54,12 @@ typedef enum
 	WAIT_FINISH_MEASURING		= 0xC1U,
 	READ_RAW_DATA				= 0xA1U,
 	PARSE_RAW_DATA				= 0xD1U,
-	COMPANSE_T					= 0xE1U,
-	COMPANSE_P					= 0xE2U,
+	COMPENSATE_T				= 0xE1U,
+	COMPENSATE_P				= 0xE2U,
 	MEASURE_OK					= 0XAAU,
 	ERROR_M						= 0xDDU,
 	ERROR_BMP280_NULL_POINTER_M	= 0xFF,
-}BMP280_Measure_Status_T;
+}BMP280_Measure_Status_t;
 
 typedef enum
 {
@@ -149,7 +150,7 @@ typedef struct
 typedef struct
 {
 	uint32_t adc_temperature;
-	uint32_t adc_pressure;
+	uint32_t adc_pressure_pa;
 }BMP280_UncompensatedData;
 
 typedef enum
@@ -158,13 +159,13 @@ typedef enum
 	BMP280_STATUS_INIT			= 0x01U,
 	BMP280_STATUS_FAST_TEMP		= 0xB0U,
 	BMP280_STATUS_FAST_PRESS	= 0xB1U,
-	BMP280_STATUS_FAST_MEASUR	= 0xB2U,
+	BMP280_STATUS_FAST_MEASURE	= 0xB2U,
 }BMP280_Status_t;
 
 typedef struct
 {
 	int32_t 					temperature_x100;
-	uint32_t 					pressure;
+	uint32_t 					pressure_pa;
 	BMP280_UncompensatedData	Uncompensated_Data;
 	int32_t 					t_fine;
 
@@ -187,11 +188,11 @@ bool readChipId(BMP280_t *BMP280, uint8_t *chip_id);
 
 BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t address);
 
-BMP280_Measure_Status_T fastPress(BMP280_t *BMP280, uint32_t *press);
+BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press);
 
-BMP280_Measure_Status_T fastTemp(BMP280_t *BMP280, int32_t *temp);
+BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp);
 
-BMP280_Measure_Status_T fastMeasur(BMP280_t *BMP280, int32_t *temp, uint32_t *press);
+BMP280_Measure_Status_t fastMeasure(BMP280_t *BMP280, int32_t *temp, uint32_t *press);
 
 uint16_t error_Handler(BMP280_t *BMP280, uint8_t status);
 
