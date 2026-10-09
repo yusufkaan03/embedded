@@ -41,6 +41,12 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+typedef enum
+{
+	SENSOR_INIT,
+	SENSOR_MEASURE,
+}Status_t;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,18 +82,24 @@ void intToCharFix(int32_t varable, char *response, uint8_t buffer_size)
 
 	uint32_t u_varable = (varable < 0) ? -varable : varable;
 
-	snprintf(merge, sizeof(merge), "%c%lu", sing, u_varable);
+	uint32_t u_varable_int = (u_varable / 100);
+	uint32_t u_varable_dec = (u_varable % 100);
 
-	snprintf(response, buffer_size, "%.3s.%s", merge, merge+3);
+	snprintf(merge, sizeof(merge), "%c%lu.%lu", sing, u_varable_int, u_varable_dec);
+
+	snprintf(response, buffer_size, "%s", merge);
 }
 
 void uintToCharFix(uint32_t varable, char *response, uint8_t buffer_size)
 {
 	char convert[15];
 
-	snprintf(convert, sizeof(convert), "%lu", varable);
+	uint32_t u_varable_int = (varable / 100);
+	uint32_t u_varable_dec = (varable % 100);
 
-	snprintf(response, buffer_size, "%.3s.%s", convert, convert+3);
+	snprintf(convert, sizeof(convert), "%lu.%lu", u_varable_int, u_varable_dec);
+
+	snprintf(response, buffer_size, "%s", convert);
 }
 
 /* USER CODE END 0 */
@@ -155,23 +167,30 @@ int main(void)
   uintToCharFix(press, press_char, sizeof(press_char));
   uintToCharFix(press_f, press_char_f, sizeof(press_char_f));
 
-  char response[150];
+  char response_s[150];
   char response_f[150];
 
-  snprintf(response, sizeof(response), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char, press_char);
+  snprintf(response_s, sizeof(response_s), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char, press_char);
   snprintf(response_f, sizeof(response_f), "TEMPERATURE_F:%7sDegC\r\nPRESSURE_F:%10shPa\r\n", temp_char_f, press_char_f);
 
-  uart_send(response);
+  uart_send(response_s);
   uart_send(response_f);
+
 
   int32_t temp_s;
   uint32_t press_s;
 
-  char temp_char_s[15];
-  char press_char_s[15];
-  char response_s[100];
+
+  Status_t status = SENSOR_INIT;
+  BMP280_Init_Status_t init_status;
+  BMP280_Measure_Status_t measure_status;
 
   uint32_t last_time = 0U;
+
+  uint16_t error_code_init = 0x0000;
+  uint16_t error_code_measure = 0x0000;
+
+  char response[150];
 
   /* USER CODE END 2 */
 
@@ -182,20 +201,70 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
 	  if((HAL_GetTick() - last_time) >= 1000U)
 	  {
-		  fastMeasure(&BMP280, &temp_s, &press_s);
-
-		  intToCharFix(temp_s, temp_char_s, sizeof(temp_char_s));
-		  uintToCharFix(press_s, press_char_s, sizeof(press_char_s));
-
-		  snprintf(response_s, sizeof(response_s), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char_s, press_char_s);
-
-		  uart_send(response_s);
-		  uart_send("------------------------\r\n");
-
 		  last_time = HAL_GetTick();
+
+		  if(status == SENSOR_INIT)
+		  {
+			  init_status = BMP280_Init(&BMP280, &hi2c1, 0x76U);
+
+			  if(init_status == INIT_OK)
+			  {
+				  status = SENSOR_MEASURE;
+				  uart_send("--------------------\r\n");
+				  uart_send("BMP280_INIT_OK\r\n");
+				  error_code_init = 0x00A1;
+				  char error[50];
+				  snprintf(error, sizeof(error), "ERROR:%X\r\n", BMP280.Error);
+				  uart_send(error);
+			  }
+			  else
+			  {
+				  uint16_t error = ((uint16_t)(init_status) << 8U) | ((uint16_t)(BMP280.Error));
+
+				  if(error_code_init != error)
+				  {
+					  error_code_init = error;
+					  snprintf(response, sizeof(response), "INIT_ERROR_CODE: %X\r\n", error_code_init);
+					  uart_send("--------------------\r\n");
+					  uart_send(response);
+				  }
+			  }
+		  }
+		  if(status == SENSOR_MEASURE)
+		  {
+			  measure_status = fastMeasure(&BMP280, &temp_s, &press_s);
+
+			  if(measure_status == MEASURE_OK)
+			  {
+				  intToCharFix(temp_s, temp_char, sizeof(temp_char));
+				  uintToCharFix(press_s, press_char, sizeof(press_char));
+				  snprintf(response, sizeof(response), "TEMPERATURE:%7sDegC\r\nPRESSURE:%10shPa\r\n", temp_char, press_char);
+				  uart_send("--------------------\r\n");
+				  uart_send(response);
+				  error_code_measure = 0x001A;
+			  }
+			  else
+			  {
+				  uint16_t error = ((uint16_t)(measure_status) << 8U) | ((uint16_t)(BMP280.Error));
+
+				  if(error_code_measure != error)
+				  {
+					  char error_me[50];
+					  error_code_measure = error;
+					  snprintf(response, sizeof(response), "MESURE_ERROR_CODE: %X\r\n", error_code_measure);
+					  uart_send("--------------------\r\n");
+					  snprintf(error_me, sizeof(error_me), "ERROR:%X\r\n", BMP280.Error);
+					  uart_send(response);
+					  uart_send(error_me);
+					  status = SENSOR_INIT;
+				  }
+			  }
+		  }
 	  }
+
   }
   /* USER CODE END 3 */
 }

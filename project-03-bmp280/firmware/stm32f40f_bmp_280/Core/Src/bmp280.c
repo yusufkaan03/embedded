@@ -135,27 +135,33 @@ static bool BMP280_Workflow(BMP280_t *BMP280, uint8_t wait_time)
 	uint8_t measuring;
 	uint8_t im_update;
 
-
-
 	HAL_Delay(5);
 
 	uint32_t last_time = HAL_GetTick();
 
 	do
 	{
-		readRegister(BMP280, BMP280_REG_STATUS, &status_reg_value, 1U);
-		measuring = status_reg_value & 0x08U;
-		im_update = status_reg_value & 0x01U;
+		if(readRegister(BMP280, BMP280_REG_STATUS, &status_reg_value, 1U) == true)
+		{
+			measuring = status_reg_value & 0x08U;
+			im_update = status_reg_value & 0x01U;
+		}
+		else
+		{
+			measuring = 0xFFU;
+			im_update = 0xFFU;
+		}
 	}while((measuring == 0x8U || im_update == 0x1U) && (HAL_GetTick() - last_time) < wait_time);
 
-	if(measuring != 0U && im_update != 0U)
+	if(measuring == 0U && im_update == 0U)
+	{
+		return true;
+	}
+	else
 	{
 		BMP280->Error = ERROR_TIMEOUT;
 		return false;
 	}
-
-	return true;
-
 }
 
 static BMP280_Measure_Status_t MeasuringHandler(BMP280_t *BMP280, BMP280_Measure_Status_t *status)
@@ -167,7 +173,7 @@ static BMP280_Measure_Status_t MeasuringHandler(BMP280_t *BMP280, BMP280_Measure
 					((uint8_t)(BMP280->Params.mode));
 	f5_reg_value = (uint8_t)(BMP280->Params.filter) << 2U;
 
-	*status = WRITE_CALIB_DATA;
+	*status = CONFIGURE_MEASUREMENT;
 
 	if(writeRegister(BMP280, BMP280_REG_CONFIG, &f5_reg_value, 1U) != true)
 		{
@@ -300,12 +306,15 @@ bool readChipId(BMP280_t *BMP280, uint8_t *chip_id)
 
 BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, uint8_t Address)
 {
-	BMP280_Init_Status_t initStatus = BMP280_START;
-
 	if(BMP280 == NULL)
 	{
 		return ERROR_BMP280_NULL_POINTER_I;
 	}
+	if(p_hi2c == NULL)
+	{
+		return ERROR_I2C_NULL_POINTER;
+	}
+	BMP280_Init_Status_t initStatus = BMP280_START;
 
 	BMP280->Status = BMP280_STATUS_INIT;
 	BMP280->hi2c = p_hi2c;
@@ -369,8 +378,9 @@ BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, ui
 			return initStatus;
 		}
 
-		initStatus = MEASURE_OK;
+		initStatus = INIT_OK;
 		BMP280->Status = BMP280_STATUS_WAIT;
+		BMP280->Error = ERROR_NO;
 	}
 
 	return initStatus;
@@ -380,6 +390,16 @@ BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, ui
 BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 {
 
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
+	if(press == NULL)
+	{
+		return ERROR_VARABLE_NULL_POINTER;
+	}
+
 	if(BMP280->Error != ERROR_NO)
 	{
 		return ERROR_M;
@@ -387,18 +407,13 @@ BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 
 	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
-	if(BMP280 == NULL)
-	{
-		return ERROR_BMP280_NULL_POINTER_M;
-	}
-
 	int32_t temp = 0U;;
 	BMP280->Params.mode = BMP280_MODE_FORCE;
 	BMP280->Params.osrs_t = BMP280_MEASURE_X1;
 	BMP280->Params.osrs_p = BMP280_MEASURE_X2;
 	BMP280->Params.filter = BMP280_FILTER_X2;
 	BMP280->Status = BMP280_STATUS_FAST_PRESS;
-	if(Measuring(BMP280, &temp, press, &measure_Status))
+	if(Measuring(BMP280, &temp, press, &measure_Status) == MEASURE_OK)
 	{
 		BMP280->Status = BMP280_STATUS_WAIT;
 	}
@@ -408,6 +423,17 @@ BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 
 BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp)
 {
+
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
+	if(temp == NULL)
+	{
+		return ERROR_VARABLE_NULL_POINTER;
+	}
+
 	if(BMP280->Error != ERROR_NO)
 	{
 		return ERROR_M;
@@ -415,18 +441,13 @@ BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp)
 
 	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
-	if(BMP280 == NULL)
-	{
-		return ERROR_BMP280_NULL_POINTER_M;
-	}
-
 	uint32_t press = 0U;
 	BMP280->Params.mode = BMP280_MODE_FORCE;
 	BMP280->Params.osrs_t = BMP280_MEASURE_X2;
 	BMP280->Params.osrs_p = BMP280_MEASURE_SKIPPED;
 	BMP280->Params.filter = BMP280_FILTER_X2;
 	BMP280->Status = BMP280_STATUS_FAST_TEMP;
-	if(Measuring(BMP280, temp, &press, &measure_Status))
+	if(Measuring(BMP280, temp, &press, &measure_Status) == MEASURE_OK)
 	{
 		BMP280->Status = BMP280_STATUS_WAIT;
 	}
@@ -436,6 +457,15 @@ BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp)
 
 BMP280_Measure_Status_t fastMeasure(BMP280_t *BMP280, int32_t *temp, uint32_t *press)
 {
+	if(BMP280 == NULL)
+	{
+		return ERROR_BMP280_NULL_POINTER_M;
+	}
+
+	if(temp == NULL && press == NULL)
+	{
+		return ERROR_VARABLE_NULL_POINTER;
+	}
 	if(BMP280->Error != ERROR_NO)
 	{
 		return ERROR_M;
@@ -443,52 +473,17 @@ BMP280_Measure_Status_t fastMeasure(BMP280_t *BMP280, int32_t *temp, uint32_t *p
 
 	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
-	if(BMP280 == NULL)
-	{
-		return ERROR_BMP280_NULL_POINTER_M;
-	}
+
 
 	BMP280->Params.mode = BMP280_MODE_FORCE;
 	BMP280->Params.osrs_t = BMP280_MEASURE_X2;
 	BMP280->Params.osrs_p = BMP280_MEASURE_X2;
 	BMP280->Params.filter = BMP280_FILTER_X2;
 	BMP280->Status = BMP280_STATUS_FAST_MEASURE;
-	if(Measuring(BMP280, temp, press, &measure_Status))
+	if(Measuring(BMP280, temp, press, &measure_Status) == MEASURE_OK)
 	{
 		BMP280->Status = BMP280_STATUS_WAIT;
 	}
 
 	return measure_Status;
 }
-
-
-uint16_t error_Handler(BMP280_t *BMP280, uint8_t status)
-{
-	uint16_t resopnse = ((uint16_t)(BMP280->Status) << 8) | ((uint16_t)status);
-
-	return resopnse;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
