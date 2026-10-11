@@ -113,14 +113,14 @@ static uint32_t BMP280_compensate_P(BMP280_t *BMP280, uint32_t adc_P)
 	return BMP280->Measure_Data.pressure_pa;
 }
 
-static bool BMP280_ParseRawData(BMP280_t *BMP280, const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data)
+static bool BMP280_ParseRawData(const BMP280_DataRaw *data_raw, BMP280_UncompensatedData *uncompensated_data)
 {
 	if(data_raw == NULL || uncompensated_data == NULL)
 	{
 		return false;
 	}
 
-	uncompensated_data->adc_pressure_pa = (uint32_t)((uint32_t)data_raw->bytes[0] << 12U |
+	uncompensated_data->adc_pressure = (uint32_t)((uint32_t)data_raw->bytes[0] << 12U |
 			(uint32_t)data_raw->bytes[1] << 4U | (uint32_t)data_raw->bytes[2] >> 4U);
 
 	uncompensated_data->adc_temperature = (uint32_t)((uint32_t)data_raw->bytes[3] << 12U |
@@ -156,6 +156,10 @@ static bool BMP280_Workflow(BMP280_t *BMP280, uint8_t wait_time)
 	if(measuring == 0U && im_update == 0U)
 	{
 		return true;
+	}
+	else if(measuring == 0xFFU || im_update == 0xFFU)
+	{
+		return false;
 	}
 	else
 	{
@@ -229,7 +233,7 @@ static BMP280_Measure_Status_t Measuring(BMP280_t *BMP280, int32_t *temp, uint32
 
 	if(*status == PARSE_RAW_DATA)
 	{
-		if(BMP280_ParseRawData(BMP280, &data_raw, &uncompensated_data) != true)
+		if(BMP280_ParseRawData(&data_raw, &uncompensated_data) != true)
 		{
 			return *status;
 		}
@@ -243,7 +247,7 @@ static BMP280_Measure_Status_t Measuring(BMP280_t *BMP280, int32_t *temp, uint32
 		return *status;
 	}
 
-	BMP280->Measure_Data.Uncompensated_Data.adc_pressure_pa = uncompensated_data.adc_pressure_pa;
+	BMP280->Measure_Data.Uncompensated_Data.adc_pressure = uncompensated_data.adc_pressure;
 	BMP280->Measure_Data.Uncompensated_Data.adc_temperature = uncompensated_data.adc_temperature;
 
 	if(*status == COMPENSATE_T)
@@ -262,7 +266,7 @@ static BMP280_Measure_Status_t Measuring(BMP280_t *BMP280, int32_t *temp, uint32
 
 	if(*status == COMPENSATE_P)
 	{
-		*press = BMP280_compensate_P(BMP280, uncompensated_data.adc_pressure_pa);
+		*press = BMP280_compensate_P(BMP280, uncompensated_data.adc_pressure);
 		*status = MEASURE_OK;
 	}
 
@@ -317,12 +321,21 @@ BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, ui
 	BMP280_Init_Status_t initStatus = BMP280_START;
 
 	BMP280->Status = BMP280_STATUS_INIT;
+	BMP280->Error = ERROR_NO;
 	BMP280->hi2c = p_hi2c;
 	BMP280->BMP280_Address = (Address << 1U);
 
+	HAL_StatusTypeDef i2c_ready_status;
+
 	initStatus = BMP280_ADDRESS;
 
-	if(HAL_I2C_IsDeviceReady(BMP280->hi2c, BMP280->BMP280_Address, 3U, 100) == HAL_OK)
+	i2c_ready_status =
+	    HAL_I2C_IsDeviceReady(BMP280->hi2c,
+	                          BMP280->BMP280_Address,
+	                          3U,
+	                          100U);
+
+	if(i2c_ready_status == HAL_OK)
 	{
 		initStatus = BMP280_CHIPID;
 	}
@@ -380,7 +393,6 @@ BMP280_Init_Status_t BMP280_Init(BMP280_t *BMP280, I2C_HandleTypeDef *p_hi2c, ui
 
 		initStatus = INIT_OK;
 		BMP280->Status = BMP280_STATUS_WAIT;
-		BMP280->Error = ERROR_NO;
 	}
 
 	return initStatus;
@@ -397,7 +409,7 @@ BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 
 	if(press == NULL)
 	{
-		return ERROR_VARABLE_NULL_POINTER;
+		return ERROR_VARIABLE_NULL_POINTER;
 	}
 
 	if(BMP280->Error != ERROR_NO)
@@ -407,7 +419,7 @@ BMP280_Measure_Status_t fastPress(BMP280_t *BMP280, uint32_t *press)
 
 	BMP280_Measure_Status_t measure_Status = START_MEASURE;
 
-	int32_t temp = 0U;;
+	int32_t temp = 0U;
 	BMP280->Params.mode = BMP280_MODE_FORCE;
 	BMP280->Params.osrs_t = BMP280_MEASURE_X1;
 	BMP280->Params.osrs_p = BMP280_MEASURE_X2;
@@ -431,7 +443,7 @@ BMP280_Measure_Status_t fastTemp(BMP280_t *BMP280, int32_t *temp)
 
 	if(temp == NULL)
 	{
-		return ERROR_VARABLE_NULL_POINTER;
+		return ERROR_VARIABLE_NULL_POINTER;
 	}
 
 	if(BMP280->Error != ERROR_NO)
@@ -462,9 +474,9 @@ BMP280_Measure_Status_t fastMeasure(BMP280_t *BMP280, int32_t *temp, uint32_t *p
 		return ERROR_BMP280_NULL_POINTER_M;
 	}
 
-	if(temp == NULL && press == NULL)
+	if(temp == NULL || press == NULL)
 	{
-		return ERROR_VARABLE_NULL_POINTER;
+		return ERROR_VARIABLE_NULL_POINTER;
 	}
 	if(BMP280->Error != ERROR_NO)
 	{

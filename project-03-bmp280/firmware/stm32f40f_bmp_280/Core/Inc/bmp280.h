@@ -60,7 +60,7 @@ typedef enum
 	MEASURE_OK					= 0X00U,
 	ERROR_M						= 0xF1U,
 	ERROR_BMP280_NULL_POINTER_M	= 0xF2U,
-	ERROR_VARABLE_NULL_POINTER	= 0xF3U
+	ERROR_VARIABLE_NULL_POINTER	= 0xF3U
 }BMP280_Measure_Status_t;
 
 typedef enum
@@ -152,7 +152,7 @@ typedef struct
 typedef struct
 {
 	uint32_t adc_temperature;
-	uint32_t adc_pressure_pa;
+	uint32_t adc_pressure;
 }BMP280_UncompensatedData;
 
 typedef enum

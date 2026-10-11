@@ -74,30 +74,30 @@ void uart_send(char* text)
 	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
-void intToCharFix(int32_t varable, char *response, uint8_t buffer_size)
+void intToCharFix(int32_t value, char *response, uint8_t buffer_size)
 {
 	char merge[15];
 
-	char sing = (varable < 0) ? '-' : ' ';
+	char sign = (value < 0) ? '-' : ' ';
 
-	uint32_t u_varable = (varable < 0) ? -varable : varable;
+	uint32_t u_value = (value < 0) ? -value : value;
 
-	uint32_t u_varable_int = (u_varable / 100);
-	uint32_t u_varable_dec = (u_varable % 100);
+	uint32_t u_value_int = (u_value / 100);
+	uint32_t u_value_dec = (u_value % 100);
 
-	snprintf(merge, sizeof(merge), "%c%lu.%lu", sing, u_varable_int, u_varable_dec);
+	snprintf(merge, sizeof(merge), "%c%lu.%02lu", sign, u_value_int, u_value_dec);
 
 	snprintf(response, buffer_size, "%s", merge);
 }
 
-void uintToCharFix(uint32_t varable, char *response, uint8_t buffer_size)
+void uintToCharFix(uint32_t value, char *response, uint8_t buffer_size)
 {
 	char convert[15];
 
-	uint32_t u_varable_int = (varable / 100);
-	uint32_t u_varable_dec = (varable % 100);
+	uint32_t u_value_int = (value / 100);
+	uint32_t u_value_dec = (value % 100);
 
-	snprintf(convert, sizeof(convert), "%lu.%lu", u_varable_int, u_varable_dec);
+	snprintf(convert, sizeof(convert), "%lu.%02lu", u_value_int, u_value_dec);
 
 	snprintf(response, buffer_size, "%s", convert);
 }
@@ -143,8 +143,7 @@ int main(void)
   uart_send(boot_msg_head);
   uart_send(boot_msg);
 
-  BMP280_t BMP280 = {0};
-
+  /*
   int32_t temp;
   int32_t temp_f;
   uint32_t press;
@@ -156,9 +155,9 @@ int main(void)
   fastPress(&BMP280, &press);
   fastMeasure(&BMP280, &temp_f, &press_f);
 
-  char temp_char[15];
+
   char temp_char_f[15];
-  char press_char[10];
+
   char press_char_f[10];
 
   intToCharFix(temp, temp_char, sizeof(temp_char));
@@ -174,11 +173,16 @@ int main(void)
   snprintf(response_f, sizeof(response_f), "TEMPERATURE_F:%7sDegC\r\nPRESSURE_F:%10shPa\r\n", temp_char_f, press_char_f);
 
   uart_send(response_s);
-  uart_send(response_f);
+  uart_send(response_f);*/
+
+  BMP280_t BMP280 = {0};
 
 
   int32_t temp_s;
   uint32_t press_s;
+
+  char temp_char[15];
+  char press_char[10];
 
 
   Status_t status = SENSOR_INIT;
@@ -192,6 +196,11 @@ int main(void)
 
   char response[150];
 
+  uint32_t init_count = 0U;
+
+  uint32_t ok_count = 0U;
+  uint32_t error_count = 0U;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -203,12 +212,14 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 	  if((HAL_GetTick() - last_time) >= 1000U)
+	  /*if(1)*/
 	  {
 		  last_time = HAL_GetTick();
 
 		  if(status == SENSOR_INIT)
 		  {
 			  init_status = BMP280_Init(&BMP280, &hi2c1, 0x76U);
+			  init_count++;
 
 			  if(init_status == INIT_OK)
 			  {
@@ -216,9 +227,7 @@ int main(void)
 				  uart_send("--------------------\r\n");
 				  uart_send("BMP280_INIT_OK\r\n");
 				  error_code_init = 0x00A1;
-				  char error[50];
-				  snprintf(error, sizeof(error), "ERROR:%X\r\n", BMP280.Error);
-				  uart_send(error);
+				  ok_count ++;
 			  }
 			  else
 			  {
@@ -231,8 +240,17 @@ int main(void)
 					  uart_send("--------------------\r\n");
 					  uart_send(response);
 				  }
+
+				  error_count ++;
+				  status = SENSOR_INIT;
 			  }
+
+			  char try[150];
+			  snprintf(try, sizeof(try), "init_count: %lu\r\nok_count: %lu\r\nerror_count: %lu\r\n",init_count, ok_count, error_count);
+			  uart_send("--------------------\r\n");
+			  uart_send(try);
 		  }
+
 		  if(status == SENSOR_MEASURE)
 		  {
 			  measure_status = fastMeasure(&BMP280, &temp_s, &press_s);
@@ -245,6 +263,7 @@ int main(void)
 				  uart_send("--------------------\r\n");
 				  uart_send(response);
 				  error_code_measure = 0x001A;
+				  status = SENSOR_MEASURE;
 			  }
 			  else
 			  {
@@ -252,15 +271,13 @@ int main(void)
 
 				  if(error_code_measure != error)
 				  {
-					  char error_me[50];
 					  error_code_measure = error;
-					  snprintf(response, sizeof(response), "MESURE_ERROR_CODE: %X\r\n", error_code_measure);
+					  snprintf(response, sizeof(response), "MEASURE_ERROR_CODE: %X\r\n", error_code_measure);
 					  uart_send("--------------------\r\n");
-					  snprintf(error_me, sizeof(error_me), "ERROR:%X\r\n", BMP280.Error);
 					  uart_send(response);
-					  uart_send(error_me);
-					  status = SENSOR_INIT;
 				  }
+
+				  status = SENSOR_INIT;
 			  }
 		  }
 	  }
