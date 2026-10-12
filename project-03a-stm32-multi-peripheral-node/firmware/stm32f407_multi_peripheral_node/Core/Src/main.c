@@ -37,6 +37,9 @@
 
 #define SPI_READ_DATA	1U
 #define SPI_WRITE_DATA	0U
+#define INFO_01_REG		0x0DU
+#define INFO_02_REG		0x0EU
+#define WHO_AM_I_REG	0x0FU
 
 /* USER CODE END PTD */
 
@@ -67,41 +70,64 @@ void SystemClock_Config(void);
 
 void uart_send(char* text)
 {
-	HAL_UART_Transmit(&huart1, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart2, (uint8_t* )text, strlen(text), HAL_MAX_DELAY);
 }
 
 void uart_send_int(uint8_t *data, uint8_t data_size)
 {
-	uint8_t char_size = data_size*4;
+	uint8_t char_size = (data_size*5U) + 1U;
 	char output_str[char_size];
 
 	for (int i = 0; i < data_size; i++) {
-	    snprintf(output_str + (i * 3), sizeof(output_str) - (i * 3), "0x%02X ", data[i]);
+	    snprintf(output_str + (i * 5), sizeof(output_str) - (i * 5), "0x%02X ", data[i]);
 	}
 
-	HAL_UART_Transmit(&huart1, (uint8_t* )output_str, strlen(output_str), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart2, (uint8_t* )output_str, strlen(output_str), HAL_MAX_DELAY);
 }
 
-void buildSpiPacket(uint8_t *rx_data, uint8_t rx_data_size, uint8_t mode, uint8_t adress, uint8_t data)
+void buildSpiPacket(uint8_t *rx_data, uint8_t rx_data_size, uint8_t mode, uint8_t adress, uint8_t *data)
 {
-	uint8_t byte[2];
-	byte[0] = (mode << 7) | (adress | 0x7FU);
-	byte[1] = data;
+	rx_data[0] = (mode << 7) | (adress & 0x7FU);
 
-	for(uint8_t i = 0; i < rx_data_size; i++)
+	for(uint8_t i = 1; i < rx_data_size; i++)
 	{
-		rx_data[i] = byte[i];
+		rx_data[i] = data[i-1U];
 	}
 }
 
-void spiRecivece(SPI_HandleTypeDef *hspi, uint8_t *pTxData, uint8_t *pRxData, uint8_t size, uint8_t timeout, uint8_t adress)
+HAL_StatusTypeDef spiTransmitRecivece(SPI_HandleTypeDef *hspi, uint8_t *pTxData, uint8_t *pRxData, uint8_t size, uint8_t timeout, GPIO_TypeDef *port, uint16_t pin)
 {
-	switch (adress){
-	case 0x3FU:
-		HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, SET);
-		HAL_SPI_TransmitReceive(hspi, pTxData, pRxData, size, timeout);
-		HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, RESET);
-		break;
+	HAL_StatusTypeDef status;
+	HAL_GPIO_WritePin(port, pin, RESET);
+	status = HAL_SPI_TransmitReceive(hspi, pTxData, pRxData, size, timeout);
+	HAL_GPIO_WritePin(port, pin, SET);
+
+	return status;
+}
+
+void uartPrintHalStatus(HAL_StatusTypeDef status)
+{
+	switch (status){
+		case HAL_OK:
+			uart_send("HAL_OK\r\n");
+			break;
+
+		case HAL_ERROR:
+			uart_send("HAL_ERROR\r\n");
+			break;
+
+		case HAL_BUSY:
+			uart_send("HAL_BUSY\r\n");
+			break;
+
+		case HAL_TIMEOUT:
+			uart_send("HAL_TIMEOUT\r\n");
+			break;
+
+		default:
+			uart_send("HAL_UNKNOWN\r\n");
+			break;
+
 	}
 }
 
@@ -137,21 +163,59 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
-  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  uint8_t adress = 0x0FU;
-  uint8_t rx_data = 0x00U;
-  uint8_t rx_bit[2];
-  uint8_t tx_bit[2];
+  __HAL_SPI_ENABLE(&hspi1);
 
-  buildSpiPacket(rx_bit, sizeof(rx_bit), SPI_READ_DATA, adress, rx_data);
+  char boot_msg[] = "/----BOOT_OK----/\r\n";
+  char boot_msg_head[] = "\r\n\r\n/---------------/\r\n";
+  uart_send(boot_msg_head);
+  uart_send(boot_msg);
 
-  spiRecivece(&hspi1, rx_bit, tx_bit, sizeof(rx_bit), 100, adress);
+  uint8_t tx_data = 0x00U;
+  uint8_t tx_buffer[2];
+  uint8_t rx_buffer[] = {0x00U, 0x00U};
 
-  uart_send_int(tx_bit, sizeof(tx_bit));
+  HAL_StatusTypeDef status;
+
+  buildSpiPacket(tx_buffer, sizeof(tx_buffer), SPI_READ_DATA, WHO_AM_I_REG, &tx_data);
+  status = spiTransmitRecivece(&hspi1, tx_buffer, rx_buffer, sizeof(tx_buffer), 100, MOTION_SENSOR_CS_GPIO_Port, MOTION_SENSOR_CS_Pin);
+  if(status == HAL_OK)
+  {
+	  uart_send("WHO_AM_I: ");
+	  uart_send_int(rx_buffer, sizeof(rx_buffer));
+  }
+  else
+  {
+	  uartPrintHalStatus(status);
+  }
 
 
+  buildSpiPacket(tx_buffer, sizeof(tx_buffer), SPI_READ_DATA, INFO_01_REG, &tx_data);
+  status = spiTransmitRecivece(&hspi1, tx_buffer, rx_buffer, sizeof(tx_buffer), 100, MOTION_SENSOR_CS_GPIO_Port, MOTION_SENSOR_CS_Pin);
+  if(status == HAL_OK)
+  {
+	  uart_send("\r\nINFO_01: ");
+	  uart_send_int(rx_buffer, sizeof(rx_buffer));
+  }
+  else
+  {
+	  uartPrintHalStatus(status);
+  }
+
+
+  buildSpiPacket(tx_buffer, sizeof(tx_buffer), SPI_READ_DATA, INFO_02_REG, &tx_data);
+  status = spiTransmitRecivece(&hspi1, tx_buffer, rx_buffer, sizeof(tx_buffer), 100, MOTION_SENSOR_CS_GPIO_Port, MOTION_SENSOR_CS_Pin);
+  if(status == HAL_OK)
+  {
+	  uart_send("\r\nINFO_02: ");
+	  uart_send_int(rx_buffer, sizeof(rx_buffer));
+  }
+  else
+  {
+	  uartPrintHalStatus(status);
+  }
 
   /* USER CODE END 2 */
 

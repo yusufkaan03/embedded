@@ -57,8 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define SPI1_CS_Pin GPIO_PIN_3
-#define SPI1_CS_GPIO_Port GPIOE
+#define MOTION_SENSOR_CS_Pin GPIO_PIN_3
+#define MOTION_SENSOR_CS_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 
