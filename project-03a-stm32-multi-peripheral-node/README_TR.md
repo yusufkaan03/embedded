@@ -137,10 +137,17 @@ Adım 1 tamamlandığında:
 
 #### SPI Read Formatı
 
-- R/W biti: bit 0
-- Register address alanı: bit 1-7
-- Data alanı: bit 8-15
-- Bit sırası: MSB first
+SPI transaction iki byte olarak ele alındı:
+
+- Byte 1:
+  - bit 7: R/W
+  - bit 6:0: register address
+- Byte 2:
+  - write işleminde data
+  - read işleminde master dummy byte gönderir, slave data döndürür
+
+R/W = 1 → Read
+R/W = 0 → Write
 
 ### 4.7 Teknik Kararlar ve Gerekçeleri
 
@@ -186,13 +193,42 @@ Adım 2'de WHO_AM_I register okuması ile ilk işlevsel doğrulama yapılacak.
 Adım 1 tamamlandı. LIS3DSH modeli, STM32 bağlantıları, SPI Mode 3 gereksinimi,
 WHO_AM_I register adresi/değeri ve SPI read formatı teknik kaynaklardan doğrulandı.
 
+## 5. Adım 2 — Minimum SPI / WHO_AM_I
 
-## 5. Geliştirme Günlüğü
+### 5.1 Adım 2 Amaç
 
-### 2026-10-10
+Bu adımdaki maç en basit haliyle tek bir SPI haberleşmesi ile kullanılan sensörün doğru registerinden WHO_AM_I değerini okumak. Okunan değeri datasheet yardımıyla doğrulamak.
 
-Project 03A başladı. MB997/E01 ve LIS3DSH doğrulandı. UM1472 + LIS3DSH datasheet ana kaynak olarak seçildi.
+### 5.2 Başarı Kriterleri
 
+- Tek bir SPI haberleşmesi ile doğru WHO_AM_I değerini okumak.
+- Yapılan okumanın çalışıp çalışmamasına göre doğru şekikde OK/FAULT algoritmsının kurulması.
+- En az 5 reset sonrası sistemin hala kararlı şekilde çalışmaya devam etmesi.
+
+### 5.3 Uygulama
+
+- SPI1 Mode 3 kullanıldı.
+- SPI clock 6.25 MHz (/2 prescaler).
+- CS pini PE3 GPIO olarak kontrol edildi.
+- Read command + dummy byte ile 2 byte SPI transferi yapıldı.
+- HAL_SPI_TransmitReceive sonucu kontrol edildi.
+
+### 5.4 Krşılaşılan Problemler
+
+- İlk SPI okumasında 0xFF 0xFF alındı.
+- INFO1 ve INFO2 registerları da okunarak test genişletildi.
+- Okuma sırası değiştirildiğinde hangi register ilk okunursa onun başarısız olduğu görüldü.
+- SPI peripheral, ilk transferden önce CS HIGH durumundayken enable edildi.
+- Bu değişiklikten sonra ilk transfer dahil tüm okumalar doğru çalıştı.
+
+### 5.5 Sonuç
+
+WHO_AM_I = 0x3F
+INFO1    = 0x21
+INFO2    = 0x00
+
+6.25 MHz SPI hızında çoklu reset testlerinde sonuçlar kararlı şekilde tekrarlandı.
+Adım 2 tamamlandı.
 
 ## 6. Test ve Doğrulama Kayıtları
 
