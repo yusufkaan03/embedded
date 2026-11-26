@@ -7,6 +7,16 @@
 
 #include <lis3dsh.h>
 
+/* Function prototypes ---------------------------*/
+
+static Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, const uint8_t size);
+static Lis3dsh_StatusTypeDef spiReadRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, uint8_t *response, const uint8_t size);
+static Lis3dsh_StatusTypeDef writeRegisterAndVerify(Lis3dsh_t *sensor, const uint8_t reg_adress,
+		const uint8_t *data, uint8_t *response, const uint8_t size);
+
+/*------------------------------------------------*/
+
+
 static Lis3dsh_StatusTypeDef spiTransmit(Lis3dsh_t *sensor, const uint8_t *command_data, uint8_t size)
 {
 	if((sensor == NULL) || (command_data == NULL))
@@ -91,12 +101,6 @@ static Lis3dsh_StatusTypeDef blockDataRegAddressUpdate(Lis3dsh_t *sensor)
 
 	ctrl_reg6 = read_data[1] | (1 << 4);
 
-	/*status = buildSpiPacket(write_data, SPI_WRITE_DATA, CTRL_REG6_REG, &ctrl_reg6, 1U);
-	if(status != LIS3DSH_OK)
-	{
-		return status;
-	}*/
-
 	status = writeRegisterAndVerify(sensor, CTRL_REG6_REG, &ctrl_reg6, read_data, 1U);
 	if(status != LIS3DSH_OK)
 	{
@@ -175,6 +179,122 @@ static Lis3dsh_StatusTypeDef readRawValues(Lis3dsh_t *sensor, const uint8_t axis
 	}
 
 	return status;
+}
+
+static Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, const uint8_t size)
+{
+	if((sensor == NULL) || (data == NULL))
+	{
+		return LIS3DSH_ERROR_NULL_POINTER;
+	}
+
+	if(size>MAX_SPI_SIZE)
+	{
+		return LIS3DSH_ERROR_OVERFLOW;
+	}
+	else if(size == 0)
+	{
+		return LIS3DSH_ERROR_SPI_ZERO_LENGTH;
+	}
+
+	Lis3dsh_StatusTypeDef status;
+	uint8_t command_data[MAX_SPI_SIZE + 1] = {0};
+
+	status = buildSpiPacket(command_data, SPI_WRITE_DATA, reg_adress, data, size);
+	if(status != LIS3DSH_OK)
+	{
+		return status;
+	}
+
+	status = spiTransmit(sensor, command_data, size);
+	if(status != LIS3DSH_OK)
+	{
+		return LIS3DSH_ERROR_SPI_WRITE;
+	}
+
+	return LIS3DSH_OK;
+}
+
+static Lis3dsh_StatusTypeDef spiReadRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, uint8_t *response, const uint8_t size)
+{
+	if((sensor == NULL) || (response == NULL))
+	{
+		return LIS3DSH_ERROR_NULL_POINTER;
+	}
+
+	uint8_t command_data[MAX_SPI_SIZE + 1] = {0};
+	uint8_t data[MAX_SPI_SIZE] = {0};
+
+	Lis3dsh_StatusTypeDef status;
+
+	if (size > MAX_SPI_SIZE)
+	{
+		return LIS3DSH_ERROR_OVERFLOW;
+	}
+	else if(size == 0)
+	{
+		return LIS3DSH_ERROR_SPI_ZERO_LENGTH;
+	}
+
+	uint8_t rx_msg[size+1];
+
+	for(uint8_t i = 0; i<size+1; i++)
+	{
+		rx_msg[i] = 0xFFU;
+	}
+
+	buildSpiPacket(command_data, SPI_READ_DATA, reg_adress, data, size);
+
+	status = spiTransmitReceive(sensor, command_data, rx_msg, size);
+
+	if(status == LIS3DSH_OK)
+	{
+		for(uint8_t i = 0; i<size; i++)
+		{
+			response[i] = rx_msg[i+1];
+		}
+	}
+	else
+	{
+		return status;
+	}
+
+	return LIS3DSH_OK;
+}
+
+static Lis3dsh_StatusTypeDef writeRegisterAndVerify(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, uint8_t *response, const uint8_t size)
+{
+	if((sensor == NULL) || (data == NULL) || (response == NULL))
+	{
+		return LIS3DSH_ERROR_NULL_POINTER;
+	}
+
+	Lis3dsh_StatusTypeDef status;
+
+	status = spiWriteRegister(sensor, reg_adress, data, size);
+
+	if(status != LIS3DSH_OK)
+	{
+		return status;
+	}
+
+	status = spiReadRegister(sensor, reg_adress, response, size);
+
+
+	if(status != LIS3DSH_OK)
+	{
+		return status;
+	}
+
+	for(uint8_t i = 0; i<size; i++)
+	{
+		if(response[i] != data[i])
+		{
+			return LIS3DSH_ERROR_DATA_MISMATCH;
+		}
+	}
+
+		return LIS3DSH_OK;
 }
 
 Lis3dsh_StatusTypeDef sensorInit(Lis3dsh_t *sensor, SPI_HandleTypeDef *hspi, GPIO_TypeDef *port, uint16_t pin)
@@ -264,7 +384,7 @@ Lis3dsh_StatusTypeDef sensorInit(Lis3dsh_t *sensor, SPI_HandleTypeDef *hspi, GPI
 			status = spiReadRegister(sensor, STATUS_REG, &zyxda, 1U);
 			zyxda = zyxda & (1 << 3);
 
-		}while(((HAL_GetTick() - start_time) < 200U) && (zyxda == 0x00U) && (status != LIS3DSH_OK));
+		}while(((HAL_GetTick() - start_time) < 200U) && (zyxda == 0x00U) && (status == LIS3DSH_OK));
 
 		if(status != LIS3DSH_OK)
 		{
@@ -296,121 +416,7 @@ Lis3dsh_StatusTypeDef sensorInit(Lis3dsh_t *sensor, SPI_HandleTypeDef *hspi, GPI
 	return status;
 }
 
-Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, const uint8_t size)
-{
-	if((sensor == NULL) || (data == NULL))
-	{
-		return LIS3DSH_ERROR_NULL_POINTER;
-	}
 
-	if(size>MAX_SPI_SIZE)
-	{
-		return LIS3DSH_ERROR_OVERFLOW;
-	}
-	else if(size == 0)
-	{
-		return LIS3DSH_ERROR_SPI_ZERO_LENGTH;
-	}
-
-	Lis3dsh_StatusTypeDef status;
-	uint8_t command_data[MAX_SPI_SIZE + 1] = {0};
-
-	status = buildSpiPacket(command_data, SPI_WRITE_DATA, reg_adress, data, size);
-	if(status != LIS3DSH_OK)
-	{
-		return status;
-	}
-
-	status = spiTransmit(sensor, command_data, size);
-	if(status != LIS3DSH_OK)
-	{
-		return LIS3DSH_ERROR_SPI_WRITE;
-	}
-
-	return LIS3DSH_OK;
-}
-
-Lis3dsh_StatusTypeDef spiReadRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, uint8_t *response, const uint8_t size)
-{
-	if((sensor == NULL) || (response == NULL))
-	{
-		return LIS3DSH_ERROR_NULL_POINTER;
-	}
-
-	uint8_t command_data[MAX_SPI_SIZE + 1] = {0};
-	uint8_t data[MAX_SPI_SIZE] = {0};
-
-	Lis3dsh_StatusTypeDef status;
-
-	if (size > MAX_SPI_SIZE)
-	{
-		return LIS3DSH_ERROR_OVERFLOW;
-	}
-	else if(size == 0)
-	{
-		return LIS3DSH_ERROR_SPI_ZERO_LENGTH;
-	}
-
-	uint8_t rx_msg[size+1];
-
-	for(uint8_t i = 0; i<size+1; i++)
-	{
-		rx_msg[i] = 0xFFU;
-	}
-
-	buildSpiPacket(command_data, SPI_READ_DATA, reg_adress, data, size);
-
-	status = spiTransmitReceive(sensor, command_data, rx_msg, size);
-
-	if(status == LIS3DSH_OK)
-	{
-		for(uint8_t i = 0; i<size; i++)
-		{
-			response[i] = rx_msg[i+1];
-		}
-	}
-	else
-	{
-		return status;
-	}
-
-	return LIS3DSH_OK;
-}
-
-Lis3dsh_StatusTypeDef writeRegisterAndVerify(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, uint8_t *response, const uint8_t size)
-{
-	if((sensor == NULL) || (data == NULL) || (response == NULL))
-	{
-		return LIS3DSH_ERROR_NULL_POINTER;
-	}
-
-	Lis3dsh_StatusTypeDef status;
-
-	status = spiWriteRegister(sensor, reg_adress, data, size);
-
-	if(status != LIS3DSH_OK)
-	{
-		return status;
-	}
-
-	status = spiReadRegister(sensor, reg_adress, response, size);
-
-
-	if(status != LIS3DSH_OK)
-	{
-		return status;
-	}
-
-	for(uint8_t i = 0; i<size; i++)
-	{
-		if(response[i] != data[i])
-		{
-			return LIS3DSH_ERROR_DATA_MISMATCH;
-		}
-	}
-
-		return LIS3DSH_OK;
-}
 
 Lis3dsh_StatusTypeDef readAxisRaw(Lis3dsh_t *sensor, const uint8_t axis, int16_t *value)
 {

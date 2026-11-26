@@ -89,11 +89,12 @@ typedef struct
 }Lis3dsh_t;
 
 
-Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, const uint8_t size);
+/*Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, const uint8_t size);
 
 Lis3dsh_StatusTypeDef spiReadRegister(Lis3dsh_t *sensor, const uint8_t reg_adress, uint8_t *response, const uint8_t size);
 
-Lis3dsh_StatusTypeDef writeRegisterAndVerify(Lis3dsh_t *sensor, const uint8_t reg_adress, const uint8_t *data, uint8_t *response, const uint8_t size);
+Lis3dsh_StatusTypeDef writeRegisterAndVerify(Lis3dsh_t *sensor, const uint8_t reg_adress,
+	const uint8_t *data, uint8_t *response, const uint8_t size);*/
 
 Lis3dsh_StatusTypeDef readAxisRaw(Lis3dsh_t *sensor, const uint8_t axis, int16_t *value);
 
