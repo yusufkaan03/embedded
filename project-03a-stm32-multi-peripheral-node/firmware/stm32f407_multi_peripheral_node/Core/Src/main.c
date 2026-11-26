@@ -239,8 +239,10 @@ int main(void)
 			  status = sensorInit(&sensor, &hspi1, GPIOE, GPIO_PIN_3);
 			  if(status == LIS3DSH_OK)
 	 		  {
-	 			  uart_send("--------------------------------------\r\n");
+				  uart_send("--------------------------------------\r\n");
 	 		  	  uart_send("INIT_OK\r\n");
+
+	 		  	  init_counter = 0U;
 	 		  }
 	 		  else
 	 		  {
