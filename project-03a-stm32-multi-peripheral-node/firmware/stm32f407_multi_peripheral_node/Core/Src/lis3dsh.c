@@ -91,13 +91,13 @@ static Lis3dsh_StatusTypeDef blockDataRegAddressUpdate(Lis3dsh_t *sensor)
 
 	ctrl_reg6 = read_data[1] | (1 << 4);
 
-	status = buildSpiPacket(write_data, SPI_WRITE_DATA, CTRL_REG6_REG, &ctrl_reg6, 1U);
+	/*status = buildSpiPacket(write_data, SPI_WRITE_DATA, CTRL_REG6_REG, &ctrl_reg6, 1U);
 	if(status != LIS3DSH_OK)
 	{
 		return status;
-	}
+	}*/
 
-	status = writeRegisterAndVerify(sensor, CTRL_REG6_REG, write_data, read_data, 1U);
+	status = writeRegisterAndVerify(sensor, CTRL_REG6_REG, &ctrl_reg6, read_data, 1U);
 	if(status != LIS3DSH_OK)
 	{
 		return status;
@@ -264,7 +264,7 @@ Lis3dsh_StatusTypeDef sensorInit(Lis3dsh_t *sensor, SPI_HandleTypeDef *hspi, GPI
 			status = spiReadRegister(sensor, STATUS_REG, &zyxda, 1U);
 			zyxda = zyxda & (1 << 3);
 
-		}while(((HAL_GetTick() - start_time) < 200U) && (zyxda == 0x00U));
+		}while(((HAL_GetTick() - start_time) < 200U) && (zyxda == 0x00U) && (status != LIS3DSH_OK));
 
 		if(status != LIS3DSH_OK)
 		{
