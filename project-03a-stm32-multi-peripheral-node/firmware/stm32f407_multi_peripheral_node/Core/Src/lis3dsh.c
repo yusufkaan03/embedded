@@ -33,6 +33,14 @@ static Lis3dsh_StatusTypeDef spiTransmit(Lis3dsh_t *sensor, const uint8_t *comma
 	{
 		return LIS3DSH_OK;
 	}
+	else if (status == HAL_BUSY)
+	{
+		return LIS3DSH_ERROR_SPI_BUSY;
+	}
+	else if(status == HAL_TIMEOUT)
+	{
+		return LIS3DSH_ERROR_SPI_TIMEOUT;
+	}
 	else
 	{
 		return LIS3DSH_ERROR_SPI_WRITE;
@@ -55,6 +63,14 @@ static Lis3dsh_StatusTypeDef spiTransmitReceive(Lis3dsh_t *sensor, const uint8_t
 	if (status == HAL_OK)
 	{
 		return LIS3DSH_OK;
+	}
+	else if (status == HAL_BUSY)
+	{
+		return LIS3DSH_ERROR_SPI_BUSY;
+	}
+	else if(status == HAL_TIMEOUT)
+	{
+		return LIS3DSH_ERROR_SPI_TIMEOUT;
 	}
 	else
 	{

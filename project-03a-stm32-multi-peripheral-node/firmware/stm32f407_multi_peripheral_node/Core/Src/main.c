@@ -412,6 +412,14 @@ void uartPrintHalStatus(Lis3dsh_StatusTypeDef status)
 			uart_send("LIS3DSH_ERROR_TIMEOUT\r\n");
 			break;
 
+		case LIS3DSH_ERROR_SPI_TIMEOUT:
+			uart_send("LIS3DSH_ERROR_SPI_TIMEOUT\r\n");
+			break;
+
+		case LIS3DSH_ERROR_SPI_BUSY:
+			uart_send("LIS3DSH_ERROR_SPI_BUSY\r\n");
+			break;
+
 		default:
 			uart_send("LIS3DSH_UNKNOWN\r\n");
 			break;
