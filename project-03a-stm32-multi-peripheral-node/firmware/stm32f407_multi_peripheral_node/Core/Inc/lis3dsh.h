@@ -18,6 +18,8 @@
 #define SPI_READ_DATA	1U
 #define SPI_WRITE_DATA	0U
 
+#define LIS3DSH_STARTUP_DELAY_MS 50U
+
 #define WHO_AM_I_VALUE	0x3FU
 
 #define INFO_01_REG		0x0DU

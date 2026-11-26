@@ -420,6 +420,14 @@ void uartPrintHalStatus(Lis3dsh_StatusTypeDef status)
 			uart_send("LIS3DSH_ERROR_SPI_BUSY\r\n");
 			break;
 
+		case LIS3DSH_ERROR_SPI_ZERO_LENGTH:
+			uart_send("LIS3DSH_ERROR_SPI_ZERO_LENGTH\r\n");
+			break;
+
+		case LIS3DSH_ERROR_WHO_AM_I:
+			uart_send("LIS3DSH_ERROR_WHO_AM_I\r\n");
+			break;
+
 		default:
 			uart_send("LIS3DSH_UNKNOWN\r\n");
 			break;

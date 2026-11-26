@@ -225,7 +225,7 @@ static Lis3dsh_StatusTypeDef spiWriteRegister(Lis3dsh_t *sensor, const uint8_t r
 	status = spiTransmit(sensor, command_data, size);
 	if(status != LIS3DSH_OK)
 	{
-		return LIS3DSH_ERROR_SPI_WRITE;
+		return status;
 	}
 
 	return LIS3DSH_OK;
@@ -394,6 +394,8 @@ Lis3dsh_StatusTypeDef sensorInit(Lis3dsh_t *sensor, SPI_HandleTypeDef *hspi, GPI
 	{
 		uint8_t zyxda = 0x00U;
 		uint32_t start_time = HAL_GetTick();
+
+		HAL_Delay(LIS3DSH_STARTUP_DELAY_MS);
 
 		do
 		{
